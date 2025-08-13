@@ -452,7 +452,7 @@ def cupy_kernel(strFunction, objectVariables):
     strKernel = globals()[strFunction]
 
     while True:
-        objectMatch = re.search('(SIZE_)([0-4])(\()([^\)]*)(\))', strKernel)
+        objectMatch = re.search(r'(SIZE_)([0-4])(\()([^\)]*)(\))', strKernel)
 
         if objectMatch is None:
             break
@@ -467,7 +467,7 @@ def cupy_kernel(strFunction, objectVariables):
     # end
 
     while True:
-        objectMatch = re.search('(VALUE_)([0-4])(\()([^\)]+)(\))', strKernel)
+        objectMatch = re.search(r'(VALUE_)([0-4])(\()([^\)]+)(\))', strKernel)
 
         if objectMatch is None:
             break
@@ -485,7 +485,7 @@ def cupy_kernel(strFunction, objectVariables):
     # end
 
     while True:
-        objectMatch = re.search('(OFFSET_)([0-4])(\()([^\)]+)(\))', strKernel)
+        objectMatch = re.search(r'(OFFSET_)([0-4])(\()([^\)]+)(\))', strKernel)
 
         if objectMatch is None:
             break
@@ -718,4 +718,5 @@ class ModuleDSepconv(torch.nn.Module):
 # float floatValue = VALUE_4(input, intSample, intDepth, top, left) * (1 - (delta_x - floor(delta_x))) * (1 - (delta_y - floor(delta_y))) +
 # 			                       VALUE_4(input, intSample, intDepth, top, right) * (delta_x - floor(delta_x)) *  (1 - (delta_y - floor(delta_y))) +
 # 			                       VALUE_4(input, intSample, intDepth, bottom, left) * (1 - (delta_x - floor(delta_x))) * (delta_y - floor(delta_y)) +
+
 # 			                       VALUE_4(input, intSample, intDepth, bottom, right) * (delta_x - floor(delta_x)) * (delta_y - floor(delta_y));
