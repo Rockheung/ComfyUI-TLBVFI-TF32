@@ -119,9 +119,10 @@ class TLBVFI_VFI:
         model.load_state_dict(state_dict_to_load)
         model.eval()
 
-        # Enable FP16 mixed precision for ~30% speedup + 45% memory reduction
-        if device.type == 'cuda':
-            model = model.half()
+        # FP16 disabled due to incompatibility with VQGAN frequency_extractor
+        # TODO: Fix FP16 support by converting all submodules properly
+        # if device.type == 'cuda':
+        #     model = model.half()
 
         # --- Prepare Images ---
         image_tensors = images.permute(0, 3, 1, 2).float()
@@ -138,38 +139,22 @@ class TLBVFI_VFI:
         frames_per_segment = 2 ** times_to_interpolate
         total_frames = total_segments * frames_per_segment + 1
 
-        # Try to allocate on GPU (FP16 reduces memory by 45%), fallback to CPU if OOM
-        allocation_device = device if device.type == 'cuda' else 'cpu'
-        try:
-            final_tensors = torch.empty(
-                (total_frames, *image_tensors.shape[1:]),
-                dtype=torch.float16 if device.type == 'cuda' else image_tensors.dtype,
-                device=allocation_device
-            )
-        except torch.cuda.OutOfMemoryError:
-            print("TLBVFI: GPU memory insufficient for output buffer, using CPU memory")
-            allocation_device = 'cpu'
-            final_tensors = torch.empty(
-                (total_frames, *image_tensors.shape[1:]),
-                dtype=image_tensors.dtype,
-                device='cpu'
-            )
+        # Pre-allocate output tensor on CPU (avoids torch.cat overhead)
+        final_tensors = torch.empty(
+            (total_frames, *image_tensors.shape[1:]),
+            dtype=image_tensors.dtype,
+            device='cpu'
+        )
 
         # Write first frame
         write_idx = 0
-        first_frame = image_tensors[0].half() if allocation_device == 'cuda' else image_tensors[0]
-        final_tensors[write_idx] = first_frame if allocation_device == 'cuda' else first_frame
+        final_tensors[write_idx] = image_tensors[0]
         write_idx += 1
 
         # --- Main Interpolation Loop ---
         for i in tqdm(range(len(image_tensors) - 1), desc="TLBVFI Interpolating"):
-            # Move to device and convert to FP16 in one step if needed
-            if device.type == 'cuda':
-                frame1 = image_tensors[i].unsqueeze(0).to(device=device, dtype=torch.float16)
-                frame2 = image_tensors[i+1].unsqueeze(0).to(device=device, dtype=torch.float16)
-            else:
-                frame1 = image_tensors[i].unsqueeze(0).to(device)
-                frame2 = image_tensors[i+1].unsqueeze(0).to(device)
+            frame1 = image_tensors[i].unsqueeze(0).to(device)
+            frame2 = image_tensors[i+1].unsqueeze(0).to(device)
 
             current_frames = [frame1, frame2]
             for _ in range(times_to_interpolate):
@@ -180,15 +165,9 @@ class TLBVFI_VFI:
                     temp_frames.extend([mid_frame, current_frames[j+1]])
                 current_frames = temp_frames
 
-            # Write directly to pre-allocated tensor (GPU or CPU)
+            # Write directly to pre-allocated CPU tensor
             for frame in current_frames[1:]:
-                output_frame = frame.squeeze(0)
-                # Keep in FP16 if on GPU, move to allocation device
-                if allocation_device == 'cuda':
-                    final_tensors[write_idx] = output_frame
-                else:
-                    # Convert to FP32 and move to CPU
-                    final_tensors[write_idx] = output_frame.float().cpu()
+                final_tensors[write_idx] = frame.squeeze(0).cpu()
                 write_idx += 1
 
             # Clear intermediate frames
@@ -197,10 +176,6 @@ class TLBVFI_VFI:
             gui_pbar.update(1)
         
         # --- Convert back to ComfyUI's expected format ---
-        # Move to CPU and convert to FP32 if still on GPU
-        if allocation_device == 'cuda':
-            final_tensors = final_tensors.float().cpu()
-
         final_tensors = (final_tensors + 1.0) / 2.0
         final_tensors = final_tensors.clamp(0, 1)
         final_tensors = final_tensors.permute(0, 2, 3, 1)
