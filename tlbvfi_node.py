@@ -167,8 +167,6 @@ class TLBVFI_VFI:
 
             # Clear intermediate frames
             del current_frames, temp_frames, frame1, frame2
-            if device.type == 'cuda':
-                torch.cuda.empty_cache()
 
             gui_pbar.update(1)
         
