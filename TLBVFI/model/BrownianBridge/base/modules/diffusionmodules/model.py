@@ -1177,9 +1177,13 @@ class FIEncoder(nn.Module):
         vid = Rearrange(x).clone().detach() ## B C F H W
         vid = (vid * torch.tensor([0.2989, 0.5870, 0.1140]).view(1,3,1,1,1).to(vid.device)).sum(dim = 1, keepdim = True)
         
-        low_freq, high_freq_1 = self.wavelet_transform(vid) 
+        low_freq, high_freq_1 = self.wavelet_transform(vid)
         low_freq, high_freq_2 = self.wavelet_transform(low_freq)
         high_freq = torch.cat([high_freq_1,high_freq_2],dim = 1)
+        # Match dtype with frequency_extractor (FP16 when model is in FP16 mode)
+        # Get dtype from conv_in which is reliably converted during model.half()
+        target_dtype = next(self.conv_in.parameters()).dtype
+        high_freq = high_freq.to(dtype=target_dtype)
         high_freq_fea = self.frequency_extractor(high_freq,None)
         phi_list = []
         hs = [self.conv_in(x)] ## B3 C H W
