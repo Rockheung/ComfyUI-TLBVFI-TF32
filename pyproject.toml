@@ -3,7 +3,7 @@ name = "TLBVFI"
 description = "wrapper for the TLB-VFI: Temporal-Aware Latent Brownian Bridge Diffusion for Video Frame Interpolation project"
 version = "0.1.2"
 license = {file = "LICENSE"}
-dependencies = ["pytorch_lightning", "cupy-cuda11x"]
+dependencies = ["pytorch_lightning", "cupy-cuda11x", "omegaconf"]
 
 [project.urls]
 Repository = "https://github.com/BobRandomNumber/ComfyUI-TLBVFI"
