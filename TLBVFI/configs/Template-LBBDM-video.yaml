@@ -108,7 +108,7 @@ model:
 
       skip_sample: True
       sample_type: 'linear' # options {"linear", "sin"}
-      sample_step: 10
+      sample_step: 6
 
       num_timesteps: 1000 # timesteps
       eta: 1.0 # DDIM reverse process eta
