@@ -144,6 +144,10 @@ class TLBVFI_VFI_FP16:
                 print(f"TLBVFI Warning: FP16 conversion failed, using FP32 fallback. Error: {e}")
                 use_fp16 = False
 
+            # Enable cuDNN autotuner for optimal convolution algorithms
+            torch.backends.cudnn.benchmark = True
+            print("TLBVFI: cuDNN autotuner enabled for RTX 4090 optimization")
+
         # --- Prepare Images ---
         image_tensors = images.permute(0, 3, 1, 2).float()
         image_tensors = (image_tensors * 2.0) - 1.0
@@ -159,27 +163,38 @@ class TLBVFI_VFI_FP16:
         frames_per_segment = 2 ** times_to_interpolate
         total_frames = total_segments * frames_per_segment + 1
 
-        # Pre-allocate output tensor on CPU (avoids torch.cat overhead)
-        final_tensors = torch.empty(
+        # Pre-allocate output tensor on GPU for maximum throughput (move to CPU only at the end)
+        # This keeps all data on GPU during processing to maximize GPU utilization
+        final_tensors_gpu = torch.empty(
             (total_frames, *image_tensors.shape[1:]),
-            dtype=image_tensors.dtype,
-            device='cpu'
+            dtype=torch.float16 if use_fp16 else torch.float32,
+            device=device
         )
 
-        # Write first frame
+        # Write first frame to GPU tensor
         write_idx = 0
-        final_tensors[write_idx] = image_tensors[0]
+        if use_fp16:
+            final_tensors_gpu[write_idx] = image_tensors[0].to(device=device, dtype=torch.float16)
+        else:
+            final_tensors_gpu[write_idx] = image_tensors[0].to(device=device)
         write_idx += 1
 
+        # Enable TF32 for Ampere+ GPUs (RTX 30/40 series) for better performance
+        if device.type == 'cuda' and torch.cuda.get_device_capability(device)[0] >= 8:
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            print("TLBVFI: TF32 acceleration enabled for RTX 30/40 series GPU")
+
         # --- Main Interpolation Loop ---
+        # Process all frames with GPU, minimize CPU-GPU transfers
         for i in tqdm(range(len(image_tensors) - 1), desc="TLBVFI Interpolating"):
             # Convert to FP16 when moving to CUDA device for consistency with model dtype
             if use_fp16:
-                frame1 = image_tensors[i].unsqueeze(0).to(device=device, dtype=torch.float16)
-                frame2 = image_tensors[i+1].unsqueeze(0).to(device=device, dtype=torch.float16)
+                frame1 = image_tensors[i].unsqueeze(0).to(device=device, dtype=torch.float16, non_blocking=True)
+                frame2 = image_tensors[i+1].unsqueeze(0).to(device=device, dtype=torch.float16, non_blocking=True)
             else:
-                frame1 = image_tensors[i].unsqueeze(0).to(device)
-                frame2 = image_tensors[i+1].unsqueeze(0).to(device)
+                frame1 = image_tensors[i].unsqueeze(0).to(device=device, non_blocking=True)
+                frame2 = image_tensors[i+1].unsqueeze(0).to(device=device, non_blocking=True)
 
             current_frames = [frame1, frame2]
             for _ in range(times_to_interpolate):
@@ -204,15 +219,19 @@ class TLBVFI_VFI_FP16:
                             raise
                 current_frames = temp_frames
 
-            # Write directly to pre-allocated CPU tensor
+            # Write directly to pre-allocated GPU tensor (no CPU transfer until the end)
             for frame in current_frames[1:]:
-                final_tensors[write_idx] = frame.squeeze(0).cpu()
+                final_tensors_gpu[write_idx] = frame.squeeze(0)
                 write_idx += 1
 
             # Clear intermediate frames
             del current_frames, temp_frames, frame1, frame2
 
             gui_pbar.update(1)
+
+        # Single bulk transfer from GPU to CPU at the end (much faster than per-frame)
+        print("TLBVFI: Transferring results from GPU to CPU...")
+        final_tensors = final_tensors_gpu.cpu().float()
         
         # --- Convert back to ComfyUI's expected format ---
         final_tensors = (final_tensors + 1.0) / 2.0
