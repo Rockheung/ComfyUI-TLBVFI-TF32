@@ -45,10 +45,23 @@ def find_models(folder_type: str, extensions: list) -> list:
 # --- TLBVFI Setup ---
 
 try:
+    import importlib
     current_path = Path(__file__).parent
     tlbvfi_path = current_path / "TLBVFI"
     if tlbvfi_path.is_dir():
         sys.path.insert(0, str(tlbvfi_path))
+
+        # Force reload if module is already cached (e.g., from original TLBVFI node)
+        # This ensures we get the FP16-enabled version with convert_to_fp16() method
+        modules_to_reload = [
+            'model.BrownianBridge.BrownianBridgeModel',
+            'model.BrownianBridge.LatentBrownianBridgeModel'
+        ]
+
+        for module_name in modules_to_reload:
+            if module_name in sys.modules:
+                importlib.reload(sys.modules[module_name])
+
         from model.BrownianBridge.LatentBrownianBridgeModel import LatentBrownianBridgeModel
     else:
         raise ImportError("TLBVFI directory not found.")
