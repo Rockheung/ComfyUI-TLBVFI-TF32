@@ -748,6 +748,10 @@ class UNetModel(nn.Module):
         ), "must specify y if and only if the model is class-conditional"
         hs = []
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
+        # Match dtype with time_embed module (FP16 when model is in FP16 mode)
+        # Get dtype from time_embed's first linear layer which is converted during model.half()
+        target_dtype = next(self.time_embed.parameters()).dtype
+        t_emb = t_emb.to(dtype=target_dtype)
         emb = self.time_embed(t_emb)
 
         if self.num_classes is not None:
@@ -975,7 +979,11 @@ class EncoderUNetModel(nn.Module):
         :param timesteps: a 1-D batch of timesteps.
         :return: an [N x K] Tensor of outputs.
         """
-        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+        t_emb = timestep_embedding(timesteps, self.model_channels)
+        # Match dtype with time_embed module (FP16 when model is in FP16 mode)
+        target_dtype = next(self.time_embed.parameters()).dtype
+        t_emb = t_emb.to(dtype=target_dtype)
+        emb = self.time_embed(t_emb)
 
         results = []
         h = x.type(self.dtype)
