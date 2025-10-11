@@ -1,3 +1,4 @@
 pytorch-lightning
 cupy-cuda12x
 omegaconf
+timm
