@@ -45,23 +45,10 @@ def find_models(folder_type: str, extensions: list) -> list:
 # --- TLBVFI Setup ---
 
 try:
-    import importlib
     current_path = Path(__file__).parent
     tlbvfi_path = current_path / "TLBVFI"
     if tlbvfi_path.is_dir():
         sys.path.insert(0, str(tlbvfi_path))
-
-        # Force reload if module is already cached (e.g., from original TLBVFI node)
-        # This ensures we get the FP16-enabled version with convert_to_fp16() method
-        modules_to_reload = [
-            'model.BrownianBridge.BrownianBridgeModel',
-            'model.BrownianBridge.LatentBrownianBridgeModel'
-        ]
-
-        for module_name in modules_to_reload:
-            if module_name in sys.modules:
-                importlib.reload(sys.modules[module_name])
-
         from model.BrownianBridge.LatentBrownianBridgeModel import LatentBrownianBridgeModel
     else:
         raise ImportError("TLBVFI directory not found.")
@@ -75,14 +62,14 @@ except ImportError as e:
 
 # --- Main Node Class ---
 
-class TLBVFI_VFI_FP16:
+class TLBVFI_VFI_TF32:
     @classmethod
     def INPUT_TYPES(s):
         # We only need the main model file now.
         unet_models = find_models("interpolation", [".pth"])
         if not unet_models:
              raise Exception("No TLBVFI UNet models (.pth) found in 'ComfyUI/models/interpolation/'. Please download 'vimeo_unet.pth'.")
-        
+
         return {
             "required": {
                 "images": ("IMAGE", ),
@@ -94,7 +81,7 @@ class TLBVFI_VFI_FP16:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "interpolate"
-    CATEGORY = "frame_interpolation/TLBVFI-FP16" # FP16 optimized version
+    CATEGORY = "frame_interpolation/TLBVFI-TF32" # TF32 optimized for RTX 30/40 series
 
     def interpolate(self, images, model_name, times_to_interpolate, gpu_id):
         # --- Setup ---
@@ -132,21 +119,18 @@ class TLBVFI_VFI_FP16:
         model.load_state_dict(state_dict_to_load)
         model.eval()
 
-        # Enable FP16 mixed precision on CUDA for ~30% speedup and 45% memory reduction
-        # Uses custom convert_to_fp16() method to recursively convert all VQGAN submodules
-        use_fp16 = False
+        # GPU Optimizations for RTX 30/40 series (Ampere/Ada architecture)
         if device.type == 'cuda':
-            try:
-                model.convert_to_fp16()
-                use_fp16 = True
-                print("TLBVFI: FP16 mixed precision enabled (Tensor Core acceleration)")
-            except Exception as e:
-                print(f"TLBVFI Warning: FP16 conversion failed, using FP32 fallback. Error: {e}")
-                use_fp16 = False
+            # Enable TF32 for Ampere+ GPUs (RTX 30/40 series)
+            # TF32 provides ~8x speedup vs FP32 with same precision, avoiding FP16 dtype issues
+            if torch.cuda.get_device_capability(device)[0] >= 8:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+                print("TLBVFI: TF32 acceleration enabled (RTX 30/40 series Tensor Cores)")
 
             # Enable cuDNN autotuner for optimal convolution algorithms
             torch.backends.cudnn.benchmark = True
-            print("TLBVFI: cuDNN autotuner enabled for RTX 4090 optimization")
+            print("TLBVFI: cuDNN autotuner enabled for hardware-specific optimization")
 
         # --- Prepare Images ---
         image_tensors = images.permute(0, 3, 1, 2).float()
@@ -167,56 +151,29 @@ class TLBVFI_VFI_FP16:
         # This keeps all data on GPU during processing to maximize GPU utilization
         final_tensors_gpu = torch.empty(
             (total_frames, *image_tensors.shape[1:]),
-            dtype=torch.float16 if use_fp16 else torch.float32,
+            dtype=torch.float32,
             device=device
         )
 
         # Write first frame to GPU tensor
         write_idx = 0
-        if use_fp16:
-            final_tensors_gpu[write_idx] = image_tensors[0].to(device=device, dtype=torch.float16)
-        else:
-            final_tensors_gpu[write_idx] = image_tensors[0].to(device=device)
+        final_tensors_gpu[write_idx] = image_tensors[0].to(device=device, non_blocking=True)
         write_idx += 1
-
-        # Enable TF32 for Ampere+ GPUs (RTX 30/40 series) for better performance
-        if device.type == 'cuda' and torch.cuda.get_device_capability(device)[0] >= 8:
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-            print("TLBVFI: TF32 acceleration enabled for RTX 30/40 series GPU")
 
         # --- Main Interpolation Loop ---
         # Process all frames with GPU, minimize CPU-GPU transfers
         for i in tqdm(range(len(image_tensors) - 1), desc="TLBVFI Interpolating"):
-            # Convert to FP16 when moving to CUDA device for consistency with model dtype
-            if use_fp16:
-                frame1 = image_tensors[i].unsqueeze(0).to(device=device, dtype=torch.float16, non_blocking=True)
-                frame2 = image_tensors[i+1].unsqueeze(0).to(device=device, dtype=torch.float16, non_blocking=True)
-            else:
-                frame1 = image_tensors[i].unsqueeze(0).to(device=device, non_blocking=True)
-                frame2 = image_tensors[i+1].unsqueeze(0).to(device=device, non_blocking=True)
+            # Transfer frames to GPU with async copy
+            frame1 = image_tensors[i].unsqueeze(0).to(device=device, non_blocking=True)
+            frame2 = image_tensors[i+1].unsqueeze(0).to(device=device, non_blocking=True)
 
             current_frames = [frame1, frame2]
             for _ in range(times_to_interpolate):
                 temp_frames = [current_frames[0]]
                 for j in range(len(current_frames) - 1):
-                    try:
-                        with torch.no_grad():
-                            mid_frame = model.sample(current_frames[j], current_frames[j+1], disable_progress=True)
-                        temp_frames.extend([mid_frame, current_frames[j+1]])
-                    except RuntimeError as e:
-                        if "type" in str(e).lower() and use_fp16:
-                            # FP16 type mismatch detected - fallback to FP32 for this batch
-                            print(f"\nTLBVFI Warning: FP16 processing failed (frame {i}), falling back to FP32. Error: {e}")
-                            # Convert frames to FP32 and retry
-                            frame1_fp32 = current_frames[j].float()
-                            frame2_fp32 = current_frames[j+1].float()
-                            with torch.no_grad():
-                                mid_frame = model.sample(frame1_fp32, frame2_fp32, disable_progress=True)
-                            temp_frames.extend([mid_frame, current_frames[j+1]])
-                        else:
-                            # Re-raise other runtime errors
-                            raise
+                    with torch.no_grad():
+                        mid_frame = model.sample(current_frames[j], current_frames[j+1], disable_progress=True)
+                    temp_frames.extend([mid_frame, current_frames[j+1]])
                 current_frames = temp_frames
 
             # Write directly to pre-allocated GPU tensor (no CPU transfer until the end)
