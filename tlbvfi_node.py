@@ -128,13 +128,29 @@ class TLBVFI_VFI:
             return (images, )
 
         gui_pbar = ProgressBar(len(image_tensors) - 1)
-        output_frames = [image_tensors[0:1]]
+
+        # Calculate total output frames
+        total_segments = len(image_tensors) - 1
+        frames_per_segment = 2 ** times_to_interpolate
+        total_frames = total_segments * frames_per_segment + 1
+
+        # Pre-allocate output tensor on GPU (single allocation, no copying)
+        final_tensors = torch.empty(
+            (total_frames, *image_tensors.shape[1:]),
+            dtype=image_tensors.dtype,
+            device=device  # Keep on GPU until final step
+        )
+
+        # Write first frame
+        write_idx = 0
+        final_tensors[write_idx] = image_tensors[0]
+        write_idx += 1
 
         # --- Main Interpolation Loop ---
         for i in tqdm(range(len(image_tensors) - 1), desc="TLBVFI Interpolating"):
             frame1 = image_tensors[i].unsqueeze(0).to(device)
             frame2 = image_tensors[i+1].unsqueeze(0).to(device)
-            
+
             current_frames = [frame1, frame2]
             for _ in range(times_to_interpolate):
                 temp_frames = [current_frames[0]]
@@ -143,13 +159,21 @@ class TLBVFI_VFI:
                         mid_frame = model.sample(current_frames[j], current_frames[j+1], disable_progress=True)
                     temp_frames.extend([mid_frame, current_frames[j+1]])
                 current_frames = temp_frames
-            
+
+            # Write directly to pre-allocated tensor (no .cpu() yet!)
             for frame in current_frames[1:]:
-                output_frames.append(frame.cpu())
-            
+                final_tensors[write_idx] = frame.squeeze(0)
+                write_idx += 1
+
+            # Clear intermediate frames
+            del current_frames, temp_frames, frame1, frame2
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
+
             gui_pbar.update(1)
 
-        final_tensors = torch.cat(output_frames, dim=0)
+        # Move to CPU only once at the end
+        final_tensors = final_tensors.cpu()
         
         # --- Convert back to ComfyUI's expected format ---
         final_tensors = (final_tensors + 1.0) / 2.0
