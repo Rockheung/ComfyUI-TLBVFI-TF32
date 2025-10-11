@@ -759,6 +759,10 @@ class UNetModel(nn.Module):
             emb = emb + self.label_emb(y)
 
         if self.condition_key != 'nocond':
+            # Ensure context matches input dtype before concatenation (FP16 in FP16 mode)
+            # torch.cat can produce FP32 if context has different dtype
+            if context is not None:
+                context = context.type(x.dtype)
             x = th.cat([x, context], dim=1)
         #x = th.cat([x,cond],dim = 1) ## cat with previous path
         h = x.type(self.dtype)
