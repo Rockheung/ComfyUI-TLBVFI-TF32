@@ -134,11 +134,11 @@ class TLBVFI_VFI:
         frames_per_segment = 2 ** times_to_interpolate
         total_frames = total_segments * frames_per_segment + 1
 
-        # Pre-allocate output tensor on GPU (single allocation, no copying)
+        # Pre-allocate output tensor on CPU (avoids GPU OOM and torch.cat overhead)
         final_tensors = torch.empty(
             (total_frames, *image_tensors.shape[1:]),
             dtype=image_tensors.dtype,
-            device=device  # Keep on GPU until final step
+            device='cpu'  # Allocate on CPU to avoid GPU memory issues
         )
 
         # Write first frame
@@ -160,9 +160,9 @@ class TLBVFI_VFI:
                     temp_frames.extend([mid_frame, current_frames[j+1]])
                 current_frames = temp_frames
 
-            # Write directly to pre-allocated tensor (no .cpu() yet!)
+            # Write directly to pre-allocated CPU tensor
             for frame in current_frames[1:]:
-                final_tensors[write_idx] = frame.squeeze(0)
+                final_tensors[write_idx] = frame.squeeze(0).cpu()
                 write_idx += 1
 
             # Clear intermediate frames
@@ -171,9 +171,6 @@ class TLBVFI_VFI:
                 torch.cuda.empty_cache()
 
             gui_pbar.update(1)
-
-        # Move to CPU only once at the end
-        final_tensors = final_tensors.cpu()
         
         # --- Convert back to ComfyUI's expected format ---
         final_tensors = (final_tensors + 1.0) / 2.0
