@@ -71,17 +71,18 @@ class LatentBrownianBridgeModel(BrownianBridgeModel):
 
         # Recursively convert all VQGAN submodules
         if hasattr(self, 'vqgan'):
-            # Core VQGAN components
+            # Core VQGAN components - convert to FP16 but don't reassign
+            # (reassignment can break the module tree)
             if hasattr(self.vqgan, 'encoder'):
-                self.vqgan.encoder = self.vqgan.encoder.half()
+                self.vqgan.encoder.half()
             if hasattr(self.vqgan, 'decoder'):
-                self.vqgan.decoder = self.vqgan.decoder.half()
+                self.vqgan.decoder.half()
             if hasattr(self.vqgan, 'quantize'):
-                self.vqgan.quantize = self.vqgan.quantize.half()
+                self.vqgan.quantize.half()
             if hasattr(self.vqgan, 'quant_conv'):
-                self.vqgan.quant_conv = self.vqgan.quant_conv.half()
+                self.vqgan.quant_conv.half()
             if hasattr(self.vqgan, 'post_quant_conv'):
-                self.vqgan.post_quant_conv = self.vqgan.post_quant_conv.half()
+                self.vqgan.post_quant_conv.half()
 
         # Convert condition stage model if it's not VQGAN (e.g., SpatialRescaler)
         if hasattr(self, 'cond_stage_model') and self.cond_stage_model is not None:
