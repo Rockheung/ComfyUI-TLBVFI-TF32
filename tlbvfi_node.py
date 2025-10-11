@@ -191,11 +191,14 @@ class TLBVFI_VFI_FP16:
                         temp_frames.extend([mid_frame, current_frames[j+1]])
                     except RuntimeError as e:
                         if "type" in str(e).lower() and use_fp16:
-                            # FP16 type mismatch detected during inference - should be rare if convert_to_fp16() worked
-                            raise RuntimeError(
-                                f"FP16 type mismatch during inference. This suggests a submodule wasn't properly converted. "
-                                f"Original error: {e}"
-                            )
+                            # FP16 type mismatch detected - fallback to FP32 for this batch
+                            print(f"\nTLBVFI Warning: FP16 processing failed (frame {i}), falling back to FP32. Error: {e}")
+                            # Convert frames to FP32 and retry
+                            frame1_fp32 = current_frames[j].float()
+                            frame2_fp32 = current_frames[j+1].float()
+                            with torch.no_grad():
+                                mid_frame = model.sample(frame1_fp32, frame2_fp32, disable_progress=True)
+                            temp_frames.extend([mid_frame, current_frames[j+1]])
                         else:
                             # Re-raise other runtime errors
                             raise
