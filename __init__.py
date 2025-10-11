@@ -1,11 +1,11 @@
-from .tlbvfi_node import TLBVFI_VFI
+from .tlbvfi_node import TLBVFI_VFI_FP16
 
 NODE_CLASS_MAPPINGS = {
-    "TLBVFI_VFI": TLBVFI_VFI
+    "TLBVFI_VFI_FP16": TLBVFI_VFI_FP16
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "TLBVFI_VFI": "TLBVFI Frame Interpolation"
+    "TLBVFI_VFI_FP16": "TLBVFI Frame Interpolation (FP16)"
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']

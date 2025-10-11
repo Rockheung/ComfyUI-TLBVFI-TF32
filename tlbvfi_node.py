@@ -62,7 +62,7 @@ except ImportError as e:
 
 # --- Main Node Class ---
 
-class TLBVFI_VFI:
+class TLBVFI_VFI_FP16:
     @classmethod
     def INPUT_TYPES(s):
         # We only need the main model file now.
@@ -81,7 +81,7 @@ class TLBVFI_VFI:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "interpolate"
-    CATEGORY = "frame_interpolation/TLBVFI" # Updated Category for better organization
+    CATEGORY = "frame_interpolation/TLBVFI-FP16" # FP16 optimized version
 
     def interpolate(self, images, model_name, times_to_interpolate, gpu_id):
         # --- Setup ---
