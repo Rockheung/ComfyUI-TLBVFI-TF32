@@ -138,16 +138,27 @@ class TLBVFI_VFI:
         frames_per_segment = 2 ** times_to_interpolate
         total_frames = total_segments * frames_per_segment + 1
 
-        # Pre-allocate output tensor on CPU (avoids GPU OOM and torch.cat overhead)
-        final_tensors = torch.empty(
-            (total_frames, *image_tensors.shape[1:]),
-            dtype=image_tensors.dtype,
-            device='cpu'  # Allocate on CPU to avoid GPU memory issues
-        )
+        # Try to allocate on GPU (FP16 reduces memory by 45%), fallback to CPU if OOM
+        allocation_device = device if device.type == 'cuda' else 'cpu'
+        try:
+            final_tensors = torch.empty(
+                (total_frames, *image_tensors.shape[1:]),
+                dtype=torch.float16 if device.type == 'cuda' else image_tensors.dtype,
+                device=allocation_device
+            )
+        except torch.cuda.OutOfMemoryError:
+            print("TLBVFI: GPU memory insufficient for output buffer, using CPU memory")
+            allocation_device = 'cpu'
+            final_tensors = torch.empty(
+                (total_frames, *image_tensors.shape[1:]),
+                dtype=image_tensors.dtype,
+                device='cpu'
+            )
 
         # Write first frame
         write_idx = 0
-        final_tensors[write_idx] = image_tensors[0]
+        first_frame = image_tensors[0].half() if allocation_device == 'cuda' else image_tensors[0]
+        final_tensors[write_idx] = first_frame if allocation_device == 'cuda' else first_frame
         write_idx += 1
 
         # --- Main Interpolation Loop ---
@@ -169,11 +180,15 @@ class TLBVFI_VFI:
                     temp_frames.extend([mid_frame, current_frames[j+1]])
                 current_frames = temp_frames
 
-            # Write directly to pre-allocated CPU tensor
+            # Write directly to pre-allocated tensor (GPU or CPU)
             for frame in current_frames[1:]:
-                # Convert FP16 back to FP32 for output consistency
-                output_frame = frame.squeeze(0).float() if device.type == 'cuda' else frame.squeeze(0)
-                final_tensors[write_idx] = output_frame.cpu()
+                output_frame = frame.squeeze(0)
+                # Keep in FP16 if on GPU, move to allocation device
+                if allocation_device == 'cuda':
+                    final_tensors[write_idx] = output_frame
+                else:
+                    # Convert to FP32 and move to CPU
+                    final_tensors[write_idx] = output_frame.float().cpu()
                 write_idx += 1
 
             # Clear intermediate frames
@@ -182,8 +197,12 @@ class TLBVFI_VFI:
             gui_pbar.update(1)
         
         # --- Convert back to ComfyUI's expected format ---
+        # Move to CPU and convert to FP32 if still on GPU
+        if allocation_device == 'cuda':
+            final_tensors = final_tensors.float().cpu()
+
         final_tensors = (final_tensors + 1.0) / 2.0
         final_tensors = final_tensors.clamp(0, 1)
         final_tensors = final_tensors.permute(0, 2, 3, 1)
-        
+
         return (final_tensors, )
