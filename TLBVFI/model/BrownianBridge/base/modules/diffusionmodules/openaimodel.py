@@ -770,6 +770,9 @@ class UNetModel(nn.Module):
         for module in self.output_blocks:
             hspop = hs.pop()
             h = th.cat([h, hspop], dim=1)
+            # Ensure concatenated tensor matches model dtype (FP16 in FP16 mode)
+            # torch.cat can produce FP32 if there's any dtype mismatch
+            h = h.type(self.dtype)
             h = module(h, emb, context)
         h = h.type(x.dtype)
 
