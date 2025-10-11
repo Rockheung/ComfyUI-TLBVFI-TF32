@@ -103,7 +103,8 @@ class LatentBrownianBridgeModel(BrownianBridgeModel):
 
     @torch.no_grad()
     def sample(self, y, z, clip_denoised=False, sample_mid_step=False,scale = 0.5, disable_progress=False):
-        x = torch.zeros_like(y)
+        # Ensure x has same dtype as y (important for FP16 compatibility)
+        x = torch.zeros_like(y, dtype=y.dtype, device=y.device)
         latent,phi_list = self.encode(torch.cat([y,x,z],0))
         
         latent = torch.stack(torch.chunk(latent,3),2)
