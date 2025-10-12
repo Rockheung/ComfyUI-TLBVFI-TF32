@@ -14,14 +14,21 @@ import shutil
 from pathlib import Path
 from tqdm import tqdm
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from utils import (
-    load_manifest,
-    get_session_stats,
-    cleanup_session,
-)
+# Use parent package relative import to avoid conflicts with ComfyUI's utils
+try:
+    from ..utils import (
+        load_manifest,
+        get_session_stats,
+        cleanup_session,
+    )
+except ImportError:
+    # Fallback for direct script execution
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from utils import (
+        load_manifest,
+        get_session_stats,
+        cleanup_session,
+    )
 
 import folder_paths
 

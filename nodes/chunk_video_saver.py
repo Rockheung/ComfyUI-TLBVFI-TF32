@@ -13,13 +13,19 @@ import shutil
 from pathlib import Path
 import numpy as np
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from utils import (
-    create_session_id,
-    add_chunk_to_manifest,
-)
+# Use parent package relative import to avoid conflicts with ComfyUI's utils
+try:
+    from ..utils import (
+        create_session_id,
+        add_chunk_to_manifest,
+    )
+except ImportError:
+    # Fallback for direct script execution
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from utils import (
+        create_session_id,
+        add_chunk_to_manifest,
+    )
 
 import folder_paths
 
