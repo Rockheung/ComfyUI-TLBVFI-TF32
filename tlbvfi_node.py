@@ -409,10 +409,10 @@ class TLBVFI_VFI_TF32:
         processed_chunks = []
         total_frames = len(output_frames)
 
-        # Custom bar_format to always show it/s (not s/it)
-        # Use {rate_noinv_fmt} which is always in it/s format
+        # Custom bar_format to always show chunk/s (not s/chunk)
+        # Use {rate_noinv_fmt} which is always in non-inverted format
         bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_noinv_fmt}{postfix}]'
-        for chunk_start in tqdm(range(0, total_frames, chunk_size), desc="TLBVFI Post-processing", bar_format=bar_format):
+        for chunk_start in tqdm(range(0, total_frames, chunk_size), desc="TLBVFI Post-processing", bar_format=bar_format, unit='chunk'):
             chunk_end = min(chunk_start + chunk_size, total_frames)
 
             # Stack chunk frames on CPU
