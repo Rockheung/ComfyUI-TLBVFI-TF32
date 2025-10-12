@@ -247,6 +247,15 @@ This project follows the same license as the original TLB-VFI model. Please refe
 
 ## 🔄 Changelog
 
+### v0.1.3 (v2.0.1) - Memory Optimization
+- 🔥 **Fixed OOM errors** when `times_to_interpolate >= 2`
+- 💾 **Streaming output** eliminates 9.43GB pre-allocated GPU buffer
+- 📉 **41% memory reduction** - peak usage drops from 22.9GB to 13.5GB
+- ♾️ **Unbounded video length** support through incremental processing
+- 🧹 Removed unused `one_step_imgs` tensor collection
+- 🗑️ Explicit GPU memory cache clearing after each segment
+- ✅ Enables processing of 1000+ frame videos at 1080p with t=2
+
 ### v2.0.0 - TF32 Optimization
 - ⚡ Replaced FP16 with TF32 for simpler and better performance
 - 🚀 GPU utilization increased from 20-30% to 85-95%
