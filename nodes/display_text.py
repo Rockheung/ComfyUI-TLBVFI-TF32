@@ -16,10 +16,11 @@ class DisplayText:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "text": ("STRING", {"forceInput": True}),
+                "text": ("STRING", {"default": "", "multiline": True}),
             }
         }
 
+    INPUT_IS_LIST = False
     RETURN_TYPES = ()
     OUTPUT_NODE = True
     FUNCTION = "display"
