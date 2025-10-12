@@ -235,7 +235,7 @@ class ChunkVideoSaver:
                 "session_id": ("STRING", {"default": ""}),  # Auto-generate if empty
                 "output_dir": ("STRING", {"default": ""}),  # Use ComfyUI default if empty
                 "source_video_path": ("STRING", {"default": ""}),  # Auto-detect codec/bitrate from source
-                "codec": (["h264_nvenc", "hevc_nvenc", "libvpx-vp9"],),  # Hardware encoders (ignored if source_video_path provided)
+                "codec": (["h264_nvenc", "hevc_nvenc", "libx264", "libx265", "libvpx-vp9"],),  # Encoders (ignored if source_video_path provided)
                 "quality": ("INT", {
                     "default": 18,  # CRF value (lower = better quality)
                     "min": 0,
