@@ -267,7 +267,13 @@ Concatenate video chunks using FFmpeg (no re-encoding).
             print(f"VideoConcatenator: Cleaning up chunks in {session_dir}")
             cleanup_session(session_dir, delete_chunks=True, delete_manifest=True)
 
-        return (output_path, total_frames, stats_json, frames)
+        # Return outputs with UI display
+        return {
+            "ui": {
+                "text": [f"Video saved: {output_path}\nFrames: {total_frames}\nSize: {output_size_mb:.1f}MB"]
+            },
+            "result": (output_path, total_frames, stats_json, frames)
+        }
 
     def _load_video_to_tensor(self, video_path: str) -> torch.Tensor:
         """
