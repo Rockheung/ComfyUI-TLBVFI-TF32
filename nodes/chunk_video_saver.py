@@ -108,16 +108,16 @@ def map_codec_to_encoder(codec_name: str) -> str:
         codec_name: Codec name from FFprobe (e.g., 'h264', 'hevc')
 
     Returns:
-        FFmpeg encoder name (e.g., 'libx264', 'libx265')
+        FFmpeg encoder name (e.g., 'h264_nvenc', 'libvpx-vp9')
     """
     codec_map = {
-        'h264': 'libx264',
-        'hevc': 'libx265',
-        'h265': 'libx265',
-        'mpeg4': 'libx264',  # Fallback to H.264
-        'vp9': 'libx265',    # Fallback to H.265 for similar quality
+        'h264': 'h264_nvenc',  # NVIDIA hardware encoder
+        'hevc': 'hevc_nvenc',  # NVIDIA HEVC encoder
+        'h265': 'hevc_nvenc',
+        'mpeg4': 'h264_nvenc',  # Fallback to H.264 NVENC
+        'vp9': 'libvpx-vp9',    # VP9 (available in this FFmpeg build)
     }
-    return codec_map.get(codec_name.lower(), 'libx264')  # Default to H.264
+    return codec_map.get(codec_name.lower(), 'h264_nvenc')  # Default to H.264 NVENC
 
 
 def get_safe_pixel_format(pix_fmt: str, encoder: str) -> tuple:
@@ -235,7 +235,7 @@ class ChunkVideoSaver:
                 "session_id": ("STRING", {"default": ""}),  # Auto-generate if empty
                 "output_dir": ("STRING", {"default": ""}),  # Use ComfyUI default if empty
                 "source_video_path": ("STRING", {"default": ""}),  # Auto-detect codec/bitrate from source
-                "codec": (["libx264", "libx265"],),  # H.264 or H.265 (ignored if source_video_path provided)
+                "codec": (["h264_nvenc", "hevc_nvenc", "libvpx-vp9"],),  # Hardware encoders (ignored if source_video_path provided)
                 "quality": ("INT", {
                     "default": 18,  # CRF value (lower = better quality)
                     "min": 0,
@@ -304,7 +304,7 @@ When source format is incompatible (ProRes, AV1, alpha channel, etc.):
 
     def save_chunk(self, frames: torch.Tensor, chunk_id: int, fps: int = 30,
                    session_id: str = "", output_dir: str = "", source_video_path: str = "",
-                   codec: str = "libx264", quality: int = 18):
+                   codec: str = "h264_nvenc", quality: int = 18):
         """
         Save frames as video-encoded chunk.
 
@@ -369,12 +369,12 @@ When source format is incompatible (ProRes, AV1, alpha channel, etc.):
                 print(f"  ⚠️  Pixel format '{detected_pix_fmt}' not compatible with {detected_codec}")
                 print(f"  ⚠️  Falling back to YouTube recommended encoding:")
 
-                # Use YouTube recommended settings
-                codec = 'libx264'  # YouTube recommends H.264
+                # Use YouTube recommended settings with hardware encoder
+                codec = 'h264_nvenc'  # NVIDIA H.264 hardware encoder
                 pix_fmt = 'yuv420p'  # YouTube standard
                 youtube_bitrate = get_youtube_recommended_bitrate(H, fps)
 
-                print(f"      Codec: H.264 (libx264)")
+                print(f"      Codec: H.264 (h264_nvenc - NVIDIA hardware)")
                 print(f"      Pixel Format: yuv420p")
                 print(f"      Bitrate: {youtube_bitrate / 1000000:.2f} Mbps (YouTube max for {H}p)")
 
