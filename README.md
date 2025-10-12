@@ -132,7 +132,7 @@ After completing all steps, **restart ComfyUI** to load the new node.
 
 ## 🎬 Chunk-Based Workflow (For Long Videos)
 
-**NEW in v0.1.18**: Process 4K videos of any length without memory constraints!
+**NEW in v0.2.0**: Process 4K videos of any length without memory constraints!
 
 If you're processing videos with **500+ frames** or experiencing **OOM errors**, use the new chunk-based workflow. This architecture processes frame pairs independently and saves results to disk, enabling unlimited video length processing.
 
@@ -568,7 +568,7 @@ This project follows the same license as the original TLB-VFI model. Please refe
 
 ## 🔄 Changelog
 
-### v0.1.18 - Chunk-Based Architecture
+### v0.2.0 - Chunk-Based Architecture (Major Feature Release)
 - 🎬 **NEW: Chunk-based workflow** for unlimited video length processing
 - 🔧 **4 new nodes**: FramePairSlicer, Interpolator (Chunk Mode), ChunkVideoSaver, VideoConcatenator
 - 💾 **Disk-based streaming**: Process 2 frames at a time, save chunks to disk
