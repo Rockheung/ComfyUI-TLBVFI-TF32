@@ -114,6 +114,87 @@ def map_codec_to_encoder(codec_name: str) -> str:
     return codec_map.get(codec_name.lower(), 'libx264')  # Default to H.264
 
 
+def get_safe_pixel_format(pix_fmt: str, encoder: str) -> tuple:
+    """
+    Check pixel format compatibility with encoder and return safe format.
+
+    Args:
+        pix_fmt: Pixel format from source video
+        encoder: FFmpeg encoder name (libx264 or libx265)
+
+    Returns:
+        (safe_pix_fmt, was_converted)
+    """
+    # libx264 supported formats
+    libx264_formats = {'yuv420p', 'yuv422p', 'yuv444p', 'nv12', 'nv21'}
+
+    # libx265 supported formats (including 10bit)
+    libx265_formats = {
+        'yuv420p', 'yuv422p', 'yuv444p',
+        'yuv420p10le', 'yuv422p10le', 'yuv444p10le',
+        'nv12', 'nv21'
+    }
+
+    supported = libx265_formats if encoder == 'libx265' else libx264_formats
+
+    # Already compatible
+    if pix_fmt in supported:
+        return pix_fmt, False
+
+    # Remove alpha channel (yuva420p → yuv420p)
+    if pix_fmt.startswith('yuva'):
+        safe_fmt = pix_fmt.replace('yuva', 'yuv')
+        if safe_fmt in supported:
+            return safe_fmt, True
+
+    # Downgrade 10bit to 8bit for libx264 (yuv420p10le → yuv420p)
+    if '10le' in pix_fmt and encoder == 'libx264':
+        safe_fmt = pix_fmt.replace('10le', '')
+        if safe_fmt in supported:
+            return safe_fmt, True
+
+    # Default: yuv420p (YouTube recommended, highest compatibility)
+    return 'yuv420p', True
+
+
+def get_youtube_recommended_bitrate(height: int, fps: int = 30) -> int:
+    """
+    Get YouTube recommended maximum bitrate for H.264.
+
+    Based on YouTube upload encoding settings:
+    https://support.google.com/youtube/answer/1722171
+
+    Args:
+        height: Video height in pixels
+        fps: Frame rate (uses high frame rate bitrates if > 30)
+
+    Returns:
+        Bitrate in bps
+    """
+    # YouTube recommended maximum bitrates (H.264 SDR)
+    # Format: {height: (standard_fps_mbps, high_fps_mbps)}
+    bitrate_map = {
+        2160: (45, 68),   # 4K
+        1440: (16, 24),   # 2K
+        1080: (8, 12),    # FHD
+        720: (5, 7.5),    # HD
+        480: (2.5, 4),    # SD
+        360: (1, 1.5),    # Low
+    }
+
+    # Find closest resolution
+    for res_height in sorted(bitrate_map.keys(), reverse=True):
+        if height >= res_height:
+            standard, high = bitrate_map[res_height]
+            mbps = high if fps > 30 else standard
+            return int(mbps * 1_000_000)  # Convert to bps
+
+    # Below 360p: use 360p bitrate
+    standard, high = bitrate_map[360]
+    mbps = high if fps > 30 else standard
+    return int(mbps * 1_000_000)
+
+
 class ChunkVideoSaver:
     """
     Save interpolated frames as H.264/H.265 encoded video chunks.
@@ -171,6 +252,7 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
 - Concat-compatible (no re-encoding needed for final video)
 - Each chunk is independently playable
 - Auto-detects and preserves source video quality
+- Smart fallback to YouTube upload specs for incompatible formats
 
 🎯 Usage:
 1. Connect interpolated_frames from TLBVFI_Interpolator
@@ -192,6 +274,13 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
   → Uses source bitrate for identical quality
 - source_video_path empty: Manual codec selection + CRF mode
 
+🎬 YouTube Fallback (automatic):
+When source format is incompatible (ProRes, AV1, alpha channel, etc.):
+- Codec: H.264 (libx264) - best compatibility
+- Pixel Format: yuv420p - YouTube standard
+- Bitrate: Resolution-based maximum (4K=68Mbps, 1080p=12Mbps, etc.)
+- Ensures upload-ready output for any source format
+
 ⚙️ Manual Settings (when source_video_path empty):
 - codec=libx264: Faster encoding, good compatibility
 - codec=libx265: Better compression, smaller files
@@ -202,6 +291,7 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
 📊 Disk usage (1800 chunks @ 4K):
 - H.264 CRF18: 90-180 GB
 - H.265 CRF23: 54-90 GB
+- YouTube fallback 4K: 122-244 GB (68Mbps × 8 frames)
     """
 
     def save_chunk(self, frames: torch.Tensor, chunk_id: int, fps: int = 30,
@@ -250,6 +340,7 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
 
         # Auto-detect encoding settings from source video
         video_info = get_video_encoding_info(source_video_path) if source_video_path else None
+        used_fallback = False
 
         if video_info:
             # Use source video settings
@@ -263,10 +354,30 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
             if detected_bitrate:
                 print(f"  Bitrate: {detected_bitrate / 1000000:.2f} Mbps")
 
-            # Override parameters
-            codec = detected_codec
-            pix_fmt = detected_pix_fmt
-            use_bitrate = detected_bitrate is not None
+            # Check pixel format compatibility
+            safe_pix_fmt, was_converted = get_safe_pixel_format(detected_pix_fmt, detected_codec)
+
+            if was_converted:
+                print(f"  ⚠️  Pixel format '{detected_pix_fmt}' not compatible with {detected_codec}")
+                print(f"  ⚠️  Falling back to YouTube recommended encoding:")
+
+                # Use YouTube recommended settings
+                codec = 'libx264'  # YouTube recommends H.264
+                pix_fmt = 'yuv420p'  # YouTube standard
+                youtube_bitrate = get_youtube_recommended_bitrate(H, fps)
+
+                print(f"      Codec: H.264 (libx264)")
+                print(f"      Pixel Format: yuv420p")
+                print(f"      Bitrate: {youtube_bitrate / 1000000:.2f} Mbps (YouTube max for {H}p)")
+
+                use_bitrate = True
+                detected_bitrate = youtube_bitrate
+                used_fallback = True
+            else:
+                # Use detected settings
+                codec = detected_codec
+                pix_fmt = safe_pix_fmt
+                use_bitrate = detected_bitrate is not None
         else:
             # Use manual settings
             pix_fmt = 'yuv420p'
@@ -350,8 +461,11 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
         )
 
         # Build encoding info string
-        if use_bitrate and video_info['bitrate']:
-            encoding_info = f"Codec: {codec}, Bitrate: {video_info['bitrate'] / 1000000:.2f} Mbps, Pix fmt: {pix_fmt}"
+        if use_bitrate and detected_bitrate:
+            bitrate_mbps = detected_bitrate / 1000000
+            encoding_info = f"Codec: {codec}, Bitrate: {bitrate_mbps:.2f} Mbps, Pix fmt: {pix_fmt}"
+            if used_fallback:
+                encoding_info += " [YouTube fallback]"
         else:
             encoding_info = f"Codec: {codec}, CRF: {quality}, Pix fmt: {pix_fmt}"
 
