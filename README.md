@@ -247,6 +247,12 @@ This project follows the same license as the original TLB-VFI model. Please refe
 
 ## 🔄 Changelog
 
+### v0.1.5 (v2.0.3) - Bug Fix
+- 🐛 **Fixed TypeError** with `cpu(non_blocking=True)`
+- ✅ **Replaced** `.cpu(non_blocking=True)` → `.to('cpu', non_blocking=True)`
+- 📝 **Correct API usage** - PyTorch's `.cpu()` doesn't support non_blocking
+- 🚀 **Performance maintained** - async transfers still work correctly
+
 ### v0.1.4 (v2.0.2) - Performance Optimization
 - ⚡ **Speed optimization** - reduced overhead from 27% to ~12-15%
 - 🔄 **Periodic cache clearing** (every 10 segments vs every segment)
