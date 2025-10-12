@@ -77,6 +77,7 @@ class TLBVFI_Interpolator:
             "optional": {
                 "shared_model": ("TLBVFI_MODEL",),  # For model reuse across chunks
                 "is_last_pair": ("BOOLEAN", {"default": False}),  # Include end frame for last pair
+                "save_images": ("BOOLEAN", {"default": False}),  # Save frames as PNG for debugging
             }
         }
 
@@ -99,22 +100,27 @@ TLBVFI frame interpolator optimized for chunk-based processing.
 3. Set times_to_interpolate (1=2x, 2=4x, 3=8x, 4=16x)
 4. Connect shared_model output back to its own input for model reuse
 5. Connect is_last_pair from FramePairSlicer (ensures last frame is included)
+6. [Optional] Set save_images=True to save frames as PNG for debugging
 
 ⚡ Features:
 - TF32 acceleration on RTX 30/40 series
 - Automatic GPU memory management
 - Model stays in VRAM across chunks
 - Smart frame output: excludes end frame except for last pair
+- Debug mode: save frames as PNG images
 
 📊 Output frames:
 - Normal pairs: (2^t) frames (e.g., times_to_interpolate=3 → 8 frames)
 - Last pair: (2^t + 1) frames (includes final frame of video)
 
 💾 Memory: ~13GB GPU for 4K video
+
+🐛 Debug:
+- save_images=True: Saves frames to output/tlbvfi_frames_TIMESTAMP/
     """
 
     def interpolate(self, frame_pair: torch.Tensor, model_name: str, times_to_interpolate: int,
-                   gpu_id: int, shared_model=None, is_last_pair: bool = False):
+                   gpu_id: int, shared_model=None, is_last_pair: bool = False, save_images: bool = False):
         """
         Interpolate between 2 frames.
 
@@ -195,6 +201,27 @@ TLBVFI frame interpolator optimized for chunk-based processing.
             processed_frames.append(frame_cpu)
 
         result = torch.stack(processed_frames, dim=0)  # (N, H, W, C)
+
+        # Optional: Save frames as PNG images
+        if save_images:
+            import os
+            from PIL import Image
+            import numpy as np
+            from datetime import datetime
+
+            output_dir = folder_paths.get_output_directory()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_dir = os.path.join(output_dir, f"tlbvfi_frames_{timestamp}")
+            os.makedirs(save_dir, exist_ok=True)
+
+            for idx, frame_tensor in enumerate(processed_frames):
+                # Convert to numpy uint8
+                frame_np = (frame_tensor.numpy() * 255).clip(0, 255).astype(np.uint8)
+                img = Image.fromarray(frame_np)
+                img_path = os.path.join(save_dir, f"frame_{idx:04d}.png")
+                img.save(img_path)
+
+            print(f"TLBVFI_Interpolator: Saved {len(processed_frames)} frames to {save_dir}")
 
         # Memory cleanup
         del current_frames, temp_frames, frame1, frame2, image_tensors, processed_frames
