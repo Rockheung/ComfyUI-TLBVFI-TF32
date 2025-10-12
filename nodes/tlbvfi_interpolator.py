@@ -66,6 +66,7 @@ class TLBVFI_Interpolator:
             },
             "optional": {
                 "shared_model": ("TLBVFI_MODEL",),  # For model reuse across chunks
+                "is_last_pair": ("BOOLEAN", {"default": False}),  # Include end frame for last pair
             }
         }
 
@@ -87,17 +88,23 @@ TLBVFI frame interpolator optimized for chunk-based processing.
 2. Select model (vimeo_unet.pth)
 3. Set times_to_interpolate (1=2x, 2=4x, 3=8x, 4=16x)
 4. Connect shared_model output back to its own input for model reuse
+5. Connect is_last_pair from FramePairSlicer (ensures last frame is included)
 
 ⚡ Features:
 - TF32 acceleration on RTX 30/40 series
 - Automatic GPU memory management
 - Model stays in VRAM across chunks
+- Smart frame output: excludes end frame except for last pair
+
+📊 Output frames:
+- Normal pairs: (2^t) frames (e.g., times_to_interpolate=3 → 8 frames)
+- Last pair: (2^t + 1) frames (includes final frame of video)
 
 💾 Memory: ~13GB GPU for 4K video
     """
 
     def interpolate(self, frame_pair: torch.Tensor, model_name: str, times_to_interpolate: int,
-                   gpu_id: int, shared_model=None):
+                   gpu_id: int, shared_model=None, is_last_pair: bool = False):
         """
         Interpolate between 2 frames.
 
@@ -107,9 +114,12 @@ TLBVFI frame interpolator optimized for chunk-based processing.
             times_to_interpolate: 1=2x, 2=4x, 3=8x, 4=16x
             gpu_id: CUDA device ID
             shared_model: Pre-loaded model for reuse (avoids reload overhead)
+            is_last_pair: If True, includes end frame (for last pair of video)
 
         Returns:
-            interpolated_frames: ((2^t + 1), H, W, C) tensor including original frames
+            interpolated_frames: ((2^t) or (2^t + 1), H, W, C) tensor
+                - Normal pairs: 2^t frames (excludes end frame)
+                - Last pair: 2^t + 1 frames (includes end frame)
             shared_model: Model instance for next chunk
         """
         device = torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
@@ -162,8 +172,11 @@ TLBVFI frame interpolator optimized for chunk-based processing.
             print(f"  Iteration {iteration+1}/{times_to_interpolate}: Generated {num_frames} frames")
 
         # Post-processing: back to ComfyUI format (N, H, W, C)
+        # Exclude last frame unless it's the last pair of the video
+        frames_to_process = current_frames if is_last_pair else current_frames[:-1]
+
         processed_frames = []
-        for frame in current_frames:
+        for frame in frames_to_process:
             # Move to CPU, denormalize
             frame_cpu = frame.squeeze(0).to('cpu', non_blocking=True)
             frame_cpu = (frame_cpu + 1.0) / 2.0
@@ -178,6 +191,9 @@ TLBVFI frame interpolator optimized for chunk-based processing.
         cleanup_memory(device, force_gc=True)
 
         print_memory_summary(device, "After interpolation: ")
-        print(f"TLBVFI_Interpolator: Complete! Generated {result.shape[0]} frames from 2 input frames\n")
+        print(f"TLBVFI_Interpolator: Complete! Generated {result.shape[0]} frames from 2 input frames")
+        if not is_last_pair:
+            print(f"  (Excluded end frame to avoid duplication in concat)")
+        print()
 
         return (result, model)

@@ -268,7 +268,8 @@ ComfyUI/output/tlbvfi_chunks/
 - Linear scaling with video length
 
 **Disk space** (temporary):
-- Per chunk: ~50-100 MB (9 frames @ 4K, H.264 CRF18)
+- Per chunk: ~50-100 MB (8 frames @ 4K, H.264 CRF18, normal chunks)
+- Last chunk: ~50-100 MB (9 frames, includes final frame)
 - 1000 chunks: ~50-100 GB
 - Cleaned up after concatenation
 
@@ -283,9 +284,10 @@ Chunks are saved as H.264/H.265 encoded MP4 files using FFmpeg, providing effici
 
 #### Key Features
 
-- **Efficient storage**: ~50-100MB per chunk (4K, 9 frames, CRF 18)
+- **Efficient storage**: ~50-100MB per chunk (4K, 8-9 frames, CRF 18)
 - **No re-encoding**: FFmpeg concat demuxer for fast, lossless merge
 - **Visually lossless**: CRF 18-23 quality settings
+- **No frame duplication**: Smart frame output avoids redundant frames in concat
 - **Each chunk playable**: Can preview/verify chunks before concatenation
 - **Requires FFmpeg**: Usually pre-installed on most systems
 
@@ -299,7 +301,19 @@ VHS LoadVideo → FramePairSlicer → TLBVFI Interpolator → ChunkVideoSaver
 
 **Node Parameters:**
 
-1. **ChunkVideoSaver**:
+1. **FramePairSlicer**:
+   - `images`: Video frames from VHS LoadVideo
+   - `pair_index`: Sequential pair number (0, 1, 2, ...)
+   - Outputs: `frame_pair`, `pair_index`, `total_pairs`, `is_last_pair`
+
+2. **TLBVFI_Interpolator**:
+   - `frame_pair`: 2 frames from FramePairSlicer
+   - `model_name`: vimeo_unet.pth
+   - `times_to_interpolate`: 1=2x, 2=4x, 3=8x, 4=16x
+   - `is_last_pair`: Connect from FramePairSlicer (ensures last frame is included)
+   - Output: 8 frames (normal) or 9 frames (last pair)
+
+3. **ChunkVideoSaver**:
    - `frames`: Interpolated frames from TLBVFI_Interpolator
    - `chunk_id`: Sequential chunk number (0, 1, 2, ...)
    - `fps`: Frame rate for video (match source video)
@@ -307,7 +321,7 @@ VHS LoadVideo → FramePairSlicer → TLBVFI Interpolator → ChunkVideoSaver
    - `quality`: CRF value (18=visually lossless, 23=good balance, 28=smaller)
    - Output: MP4 video chunks
 
-2. **VideoConcatenator**:
+4. **VideoConcatenator**:
    - `session_id`: Session identifier from ChunkVideoSaver
    - `output_filename`: Custom filename (auto-generated if empty)
    - `cleanup_chunks`: Delete chunks after merge (default: True)
@@ -659,6 +673,13 @@ This project follows the same license as the original TLB-VFI model. Please refe
 ---
 
 ## 🔄 Changelog
+
+### v0.2.3 - Fix Frame Duplication in Concat
+- 🔧 **Fixed frame duplication**: Added `is_last_pair` parameter to TLBVFI_Interpolator
+- 📊 **Optimized output**: Normal chunks output 8 frames (exclude end frame)
+- 🎯 **Last frame preservation**: Last chunk outputs 9 frames (includes final frame)
+- ✅ **Perfect concat**: No duplicate frames, no missing frames
+- 📝 **Updated documentation**: Clarified frame output behavior
 
 ### v0.2.2 - Simplified Architecture (Remove Raw .pt Storage)
 - 🗑️ **Removed legacy raw .pt storage**: Only video-encoded chunks remain
