@@ -422,9 +422,11 @@ When source format is incompatible (ProRes, AV1, alpha channel, etc.):
             cmd.extend(['-crf', str(quality)])
 
         # Common settings
+        gop_size = max(num_frames, 2)  # GOP size must be at least 2 for NVENC
         cmd.extend([
             '-pix_fmt', pix_fmt,
-            '-g', str(num_frames),  # GOP size = chunk size (keyframe at start)
+            '-g', str(gop_size),  # GOP size (keyframe interval)
+            '-bf', '0',  # No B-frames for concat compatibility
             '-preset', 'medium',  # Encoding speed/quality trade-off
             '-movflags', '+faststart',  # Optimize for streaming
             chunk_path
