@@ -130,13 +130,13 @@ class LatentBrownianBridgeModel(BrownianBridgeModel):
 
     @torch.no_grad()
     def latent_p_sample_loop(self, latent, y, context, clip_denoised=True, sample_mid_step=False, disable_progress=False):
-        imgs,one_step_imgs = [y],[]
+        imgs = [y]
         # Added disable=disable_progress to the tqdm call
         for i in tqdm(range(len(self.steps)), desc=f'sampling loop time step', total=len(self.steps), disable=disable_progress):
             img, x0_recon = self.p_sample(x_t = imgs[-1],y=y,context = context,i = i)
             imgs.append(img)
-            one_step_imgs.append(x0_recon) 
-        return imgs,one_step_imgs
+            # Removed one_step_imgs collection - x0_recon is never used
+        return imgs
 
     @torch.no_grad()
     def sample(self, y, z, clip_denoised=False, sample_mid_step=False,scale = 0.5, disable_progress=False):
@@ -148,12 +148,12 @@ class LatentBrownianBridgeModel(BrownianBridgeModel):
         context = latent
 
         # Pass disable_progress to the sampling loop
-        imgs,one_step_imgs = self.latent_p_sample_loop(latent = latent,
-                                            y = latent,
-                                            context = context,
-                                            clip_denoised=clip_denoised,
-                                            sample_mid_step=sample_mid_step,
-                                            disable_progress=disable_progress)
+        imgs = self.latent_p_sample_loop(latent = latent,
+                                         y = latent,
+                                         context = context,
+                                         clip_denoised=clip_denoised,
+                                         sample_mid_step=sample_mid_step,
+                                         disable_progress=disable_progress)
 
         with torch.no_grad():
             out = self.decode(imgs[-1].detach(), y,z,phi_list,scale = scale)

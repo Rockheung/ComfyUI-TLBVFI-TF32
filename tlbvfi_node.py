@@ -142,26 +142,15 @@ class TLBVFI_VFI_TF32:
 
         gui_pbar = ProgressBar(len(image_tensors) - 1)
 
-        # Calculate total output frames
-        total_segments = len(image_tensors) - 1
-        frames_per_segment = 2 ** times_to_interpolate
-        total_frames = total_segments * frames_per_segment + 1
+        # Streaming output: collect frames incrementally on CPU to avoid GPU memory explosion
+        # This eliminates the need for massive pre-allocated GPU buffer (saves ~9.43GB for t=2)
+        output_frames = []
 
-        # Pre-allocate output tensor on GPU for maximum throughput (move to CPU only at the end)
-        # This keeps all data on GPU during processing to maximize GPU utilization
-        final_tensors_gpu = torch.empty(
-            (total_frames, *image_tensors.shape[1:]),
-            dtype=torch.float32,
-            device=device
-        )
-
-        # Write first frame to GPU tensor
-        write_idx = 0
-        final_tensors_gpu[write_idx] = image_tensors[0].to(device=device, non_blocking=True)
-        write_idx += 1
+        # Add first frame
+        output_frames.append(image_tensors[0])
 
         # --- Main Interpolation Loop ---
-        # Process all frames with GPU, minimize CPU-GPU transfers
+        # Process each segment, immediately transfer results to CPU
         for i in tqdm(range(len(image_tensors) - 1), desc="TLBVFI Interpolating"):
             # Transfer frames to GPU with async copy
             frame1 = image_tensors[i].unsqueeze(0).to(device=device, non_blocking=True)
@@ -176,19 +165,21 @@ class TLBVFI_VFI_TF32:
                     temp_frames.extend([mid_frame, current_frames[j+1]])
                 current_frames = temp_frames
 
-            # Write directly to pre-allocated GPU tensor (no CPU transfer until the end)
+            # Stream results to CPU immediately (skip first frame as it's already added)
             for frame in current_frames[1:]:
-                final_tensors_gpu[write_idx] = frame.squeeze(0)
-                write_idx += 1
+                output_frames.append(frame.squeeze(0).cpu())
 
-            # Clear intermediate frames
+            # Explicit cleanup to prevent memory fragmentation
             del current_frames, temp_frames, frame1, frame2
+
+            # Force GPU memory cache cleanup after each segment
+            torch.cuda.empty_cache()
 
             gui_pbar.update(1)
 
-        # Single bulk transfer from GPU to CPU at the end (much faster than per-frame)
-        print("TLBVFI: Transferring results from GPU to CPU...")
-        final_tensors = final_tensors_gpu.cpu().float()
+        # Stack frames on CPU into final tensor
+        print("TLBVFI: Stacking output frames...")
+        final_tensors = torch.stack(output_frames, dim=0)
         
         # --- Convert back to ComfyUI's expected format ---
         final_tensors = (final_tensors + 1.0) / 2.0
