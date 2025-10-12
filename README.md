@@ -674,6 +674,12 @@ This project follows the same license as the original TLB-VFI model. Please refe
 
 ## 🔄 Changelog
 
+### v0.2.6 - Fix Import Error
+- 🐛 **Fixed ImportError**: Corrected relative import issue in `tlbvfi_interpolator.py`
+- 🔧 **Changed import path**: `from ..utils` → `from utils` to work with `sys.path.insert`
+- ✅ **Resolved conflict**: Fixed ComfyUI global utils vs project utils confusion
+- 📝 **Better compatibility**: Ensured proper module resolution with existing path setup
+
 ### v0.2.3 - Fix Frame Duplication in Concat
 - 🔧 **Fixed frame duplication**: Added `is_last_pair` parameter to TLBVFI_Interpolator
 - 📊 **Optimized output**: Normal chunks output 8 frames (exclude end frame)
