@@ -81,6 +81,96 @@ def get_version() -> str:
         print(f"Warning: Could not read version from pyproject.toml: {e}")
         return "unknown"
 
+def calculate_cleanup_interval(device, frame_shape, times_to_interpolate, num_segments):
+    """
+    Dynamically calculate optimal cleanup interval based on available GPU memory,
+    video resolution, and interpolation settings.
+
+    Args:
+        device: torch.device (CUDA device)
+        frame_shape: tuple (channels, height, width)
+        times_to_interpolate: int (interpolation depth)
+        num_segments: int (total number of segments to process)
+
+    Returns:
+        int: Cleanup interval (number of segments between cache clears)
+    """
+    if device.type != 'cuda':
+        return 10  # Default for CPU
+
+    try:
+        # Get GPU memory information
+        total_memory = torch.cuda.get_device_properties(device).total_memory
+        reserved_memory = torch.cuda.memory_reserved(device)
+        allocated_memory = torch.cuda.memory_allocated(device)
+
+        # Calculate available memory (with safety margin)
+        available_memory = total_memory - reserved_memory
+        safety_margin = 2 * 1024**3  # 2GB safety margin
+        usable_memory = max(available_memory - safety_margin, 1 * 1024**3)
+
+        # Estimate memory per segment
+        # Frame: C × H × W × 4 bytes (FP32)
+        C, H, W = frame_shape
+        frame_size = C * H * W * 4
+
+        # Estimated memory usage per segment:
+        # - Input frames: 2 × frame_size
+        # - Interpolated frames: (2^times_to_interpolate - 1) × frame_size
+        # - Model intermediate: ~10GB (phi_list, encoder/decoder activations)
+        # - Overhead: ~1GB
+        output_frames_per_seg = 2 ** times_to_interpolate - 1
+        frames_memory = (2 + output_frames_per_seg) * frame_size
+        model_memory = 10 * 1024**3  # Conservative estimate
+        overhead = 1 * 1024**3
+
+        memory_per_segment = frames_memory + model_memory + overhead
+
+        # Calculate how many segments can fit in memory
+        segments_before_cleanup = int(usable_memory / memory_per_segment)
+
+        # Apply constraints
+        min_interval = 1
+        max_interval = 20
+        default_interval = 5
+
+        if segments_before_cleanup < min_interval:
+            # Critical: need cleanup every segment
+            interval = min_interval
+            print("=" * 80)
+            print("⚠️  TLBVFI WARNING: INSUFFICIENT GPU MEMORY")
+            print("=" * 80)
+            print(f"GPU Memory: {total_memory / 1024**3:.2f}GB total, {usable_memory / 1024**3:.2f}GB usable")
+            print(f"Video: {num_segments} segments, {H}×{W} resolution, t={times_to_interpolate}")
+            print(f"Estimated: {memory_per_segment / 1024**3:.2f}GB per segment")
+            print(f"")
+            print(f"⚠️  Cleanup required EVERY segment to prevent OOM!")
+            print(f"⚠️  This will significantly impact performance (~10-20% slower)")
+            print(f"⚠️  Consider:")
+            print(f"   - Reducing video resolution")
+            print(f"   - Using times_to_interpolate=1 instead of {times_to_interpolate}")
+            print(f"   - Processing in smaller batches")
+            print("=" * 80)
+        elif segments_before_cleanup > max_interval:
+            # Plenty of memory, use reasonable default
+            interval = max_interval
+        else:
+            # Use calculated interval
+            interval = segments_before_cleanup
+
+        # Log the decision
+        print(f"TLBVFI: Dynamic cleanup interval = {interval} segments")
+        print(f"        (GPU: {usable_memory / 1024**3:.1f}GB usable, "
+              f"Est: {memory_per_segment / 1024**3:.1f}GB/segment, "
+              f"Video: {H}×{W}, t={times_to_interpolate})")
+
+        return interval
+
+    except Exception as e:
+        print(f"TLBVFI Warning: Could not calculate cleanup interval: {e}")
+        print(f"TLBVFI: Using default cleanup interval = 5 segments")
+        return 5
+
 # --- TLBVFI Setup ---
 
 try:
@@ -184,6 +274,16 @@ class TLBVFI_VFI_TF32:
 
         gui_pbar = ProgressBar(len(image_tensors) - 1)
 
+        # Calculate optimal cleanup interval based on GPU memory and video properties
+        num_segments = len(image_tensors) - 1
+        frame_shape = image_tensors.shape[1:]  # (C, H, W)
+        cleanup_interval = calculate_cleanup_interval(
+            device=device,
+            frame_shape=frame_shape,
+            times_to_interpolate=times_to_interpolate,
+            num_segments=num_segments
+        )
+
         # Streaming output: collect frames incrementally on CPU to avoid GPU memory explosion
         # This eliminates the need for massive pre-allocated GPU buffer (saves ~9.43GB for t=2)
         output_frames = []
@@ -215,18 +315,19 @@ class TLBVFI_VFI_TF32:
             # Explicit cleanup to prevent memory fragmentation
             del current_frames, temp_frames, frame1, frame2
 
-            # More aggressive memory management for long videos
-            # Synchronize and clear cache every 5 segments to prevent OOM
-            if (i + 1) % 5 == 0:
+            # Dynamic memory management based on calculated cleanup interval
+            if (i + 1) % cleanup_interval == 0:
                 if device.type == 'cuda':
                     torch.cuda.synchronize()  # Wait for all GPU operations to complete
                     torch.cuda.empty_cache()  # Clear memory cache
 
-                    # Optional: Print memory usage for debugging
-                    if (i + 1) % 50 == 0:
+                    # Print memory usage for monitoring
+                    # More frequent for tight memory, less frequent for ample memory
+                    monitor_interval = min(50, cleanup_interval * 10)
+                    if (i + 1) % monitor_interval == 0:
                         allocated = torch.cuda.memory_allocated(device) / 1024**3
                         reserved = torch.cuda.memory_reserved(device) / 1024**3
-                        print(f"TLBVFI: Segment {i+1}/{len(image_tensors)-1} - GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+                        print(f"TLBVFI: Segment {i+1}/{num_segments} - GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
 
             gui_pbar.update(1)
 
