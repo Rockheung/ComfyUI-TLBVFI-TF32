@@ -214,12 +214,33 @@ TLBVFI frame interpolator optimized for chunk-based processing.
             save_dir = os.path.join(output_dir, f"tlbvfi_frames_{timestamp}")
             os.makedirs(save_dir, exist_ok=True)
 
+            print(f"\n  Debug: Saving {len(processed_frames)} frames")
+            print(f"  Debug: processed_frames type = {type(processed_frames)}")
+            print(f"  Debug: result.shape = {result.shape}")
+
             for idx, frame_tensor in enumerate(processed_frames):
+                print(f"  Debug [{idx}]: frame_tensor type = {type(frame_tensor)}, shape = {frame_tensor.shape}")
+
                 # Convert to numpy uint8
                 frame_np = (frame_tensor.numpy() * 255).clip(0, 255).astype(np.uint8)
-                img = Image.fromarray(frame_np)
+
+                print(f"  Debug [{idx}]: frame_np shape = {frame_np.shape}, dtype = {frame_np.dtype}")
+
+                # Ensure correct shape (H, W, C)
+                if frame_np.ndim != 3:
+                    print(f"  ERROR: Unexpected frame_np dimensions: {frame_np.shape}")
+                    continue
+
+                if frame_np.shape[2] != 3:
+                    print(f"  ERROR: Expected 3 channels (RGB), got {frame_np.shape[2]}")
+                    continue
+
+                img = Image.fromarray(frame_np, mode='RGB')
                 img_path = os.path.join(save_dir, f"frame_{idx:04d}.png")
                 img.save(img_path)
+
+                if idx == 0:
+                    print(f"  Debug: Saved first frame size = {img.size} (width x height)")
 
             print(f"TLBVFI_Interpolator: Saved {len(processed_frames)} frames to {save_dir}")
 
