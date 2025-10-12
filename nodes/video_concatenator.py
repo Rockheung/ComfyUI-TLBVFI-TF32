@@ -77,6 +77,7 @@ class VideoConcatenator:
     RETURN_NAMES = ("video_path", "total_frames", "stats", "frames")
     FUNCTION = "concatenate"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
+    OUTPUT_NODE = True
 
     DESCRIPTION = """
 Concatenate video chunks using FFmpeg (no re-encoding).
