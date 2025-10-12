@@ -33,7 +33,7 @@ def find_models(folder_type: str, extensions: list) -> list:
     """Recursively finds all model files with given extensions in the specified folder type."""
     model_list = []
     base_paths = folder_paths.get_folder_paths(folder_type)
-    
+
     for base_path in base_paths:
         for root, _, files in os.walk(base_path, followlinks=True):
             for file in files:
@@ -41,6 +41,45 @@ def find_models(folder_type: str, extensions: list) -> list:
                     relative_path = os.path.relpath(os.path.join(root, file), base_path)
                     model_list.append(relative_path.replace("\\", "/"))
     return sorted(list(set(model_list)))
+
+def get_version() -> str:
+    """Read version from pyproject.toml."""
+    try:
+        pyproject_path = Path(__file__).parent / "pyproject.toml"
+        if not pyproject_path.exists():
+            return "unknown"
+
+        # Try different TOML parsing methods
+        try:
+            # Python 3.11+ has tomllib built-in
+            import tomllib
+            with open(pyproject_path, 'rb') as f:
+                data = tomllib.load(f)
+            return data.get('project', {}).get('version', 'unknown')
+        except ImportError:
+            pass
+
+        try:
+            # Try toml package
+            import toml
+            with open(pyproject_path, 'r') as f:
+                data = toml.load(f)
+            return data.get('project', {}).get('version', 'unknown')
+        except ImportError:
+            pass
+
+        # Fallback: simple regex parsing
+        with open(pyproject_path, 'r') as f:
+            content = f.read()
+            import re
+            match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+            if match:
+                return match.group(1)
+
+        return "unknown"
+    except Exception as e:
+        print(f"Warning: Could not read version from pyproject.toml: {e}")
+        return "unknown"
 
 # --- TLBVFI Setup ---
 
@@ -85,6 +124,9 @@ class TLBVFI_VFI_TF32:
 
     def interpolate(self, images, model_name, times_to_interpolate, gpu_id):
         # --- Setup ---
+        version = get_version()
+        print(f"TLBVFI-TF32 v{version} - Video Frame Interpolation")
+
         device = torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
         
         # --- Load Config ---
