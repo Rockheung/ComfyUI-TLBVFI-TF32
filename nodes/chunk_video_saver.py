@@ -42,6 +42,78 @@ def find_ffmpeg():
     return 'ffmpeg'
 
 
+def get_video_encoding_info(video_path: str):
+    """
+    Extract encoding information from source video using FFprobe.
+
+    Args:
+        video_path: Path to source video file
+
+    Returns:
+        dict with keys: codec_name, bitrate, pix_fmt, profile, level
+        Returns None if video_path is empty or file doesn't exist
+    """
+    if not video_path or not os.path.exists(video_path):
+        return None
+
+    import json
+
+    ffmpeg_path = find_ffmpeg()
+    ffprobe_path = ffmpeg_path.replace('ffmpeg', 'ffprobe')
+
+    cmd = [
+        ffprobe_path,
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=codec_name,bit_rate,pix_fmt,profile,level',
+        '-of', 'json',
+        video_path
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            print(f"Warning: FFprobe failed to read video info: {result.stderr}")
+            return None
+
+        info = json.loads(result.stdout)
+        if 'streams' not in info or len(info['streams']) == 0:
+            return None
+
+        stream = info['streams'][0]
+
+        return {
+            'codec_name': stream.get('codec_name', ''),
+            'bitrate': int(stream.get('bit_rate', 0)) if stream.get('bit_rate') else None,
+            'pix_fmt': stream.get('pix_fmt', 'yuv420p'),
+            'profile': stream.get('profile', ''),
+            'level': stream.get('level', 0),
+        }
+    except Exception as e:
+        print(f"Warning: Failed to extract video info: {e}")
+        return None
+
+
+def map_codec_to_encoder(codec_name: str) -> str:
+    """
+    Map codec name from FFprobe to FFmpeg encoder name.
+
+    Args:
+        codec_name: Codec name from FFprobe (e.g., 'h264', 'hevc')
+
+    Returns:
+        FFmpeg encoder name (e.g., 'libx264', 'libx265')
+    """
+    codec_map = {
+        'h264': 'libx264',
+        'hevc': 'libx265',
+        'h265': 'libx265',
+        'mpeg4': 'libx264',  # Fallback to H.264
+        'vp9': 'libx265',    # Fallback to H.265 for similar quality
+    }
+    return codec_map.get(codec_name.lower(), 'libx264')  # Default to H.264
+
+
 class ChunkVideoSaver:
     """
     Save interpolated frames as H.264/H.265 encoded video chunks.
@@ -75,7 +147,8 @@ class ChunkVideoSaver:
             "optional": {
                 "session_id": ("STRING", {"default": ""}),  # Auto-generate if empty
                 "output_dir": ("STRING", {"default": ""}),  # Use ComfyUI default if empty
-                "codec": (["libx264", "libx265"],),  # H.264 or H.265
+                "source_video_path": ("STRING", {"default": ""}),  # Auto-detect codec/bitrate from source
+                "codec": (["libx264", "libx265"],),  # H.264 or H.265 (ignored if source_video_path provided)
                 "quality": ("INT", {
                     "default": 18,  # CRF value (lower = better quality)
                     "min": 0,
@@ -97,13 +170,15 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
 - Encodes frames to H.264/H.265 for efficient disk usage
 - Concat-compatible (no re-encoding needed for final video)
 - Each chunk is independently playable
+- Auto-detects and preserves source video quality
 
 🎯 Usage:
 1. Connect interpolated_frames from TLBVFI_Interpolator
 2. Set chunk_id (0, 1, 2, ...) - increment for each chunk
 3. Set fps (should match source video)
-4. Choose codec: libx264 (faster) or libx265 (smaller)
-5. Set quality: 18 (visually lossless) to 28 (smaller file)
+4. [RECOMMENDED] Set source_video_path to auto-detect codec/bitrate
+5. OR manually choose codec: libx264 (faster) or libx265 (smaller)
+6. Set quality: 18 (visually lossless) to 28 (smaller file)
 
 💾 Storage:
 - Format: MP4 with H.264/H.265
@@ -111,7 +186,13 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
 - Size: ~50-100MB per chunk (9 frames @ 4K, CRF 18)
 - Concat: FFmpeg concat demuxer (no re-encoding)
 
-⚙️ Settings:
+⚙️ Quality Preservation:
+- source_video_path set: Auto-detects codec, bitrate, pixel format
+  → H.264 → H.264, H.265 → H.265, 10bit → 10bit
+  → Uses source bitrate for identical quality
+- source_video_path empty: Manual codec selection + CRF mode
+
+⚙️ Manual Settings (when source_video_path empty):
 - codec=libx264: Faster encoding, good compatibility
 - codec=libx265: Better compression, smaller files
 - quality=18: Visually lossless (recommended)
@@ -124,7 +205,7 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
     """
 
     def save_chunk(self, frames: torch.Tensor, chunk_id: int, fps: int = 30,
-                   session_id: str = "", output_dir: str = "",
+                   session_id: str = "", output_dir: str = "", source_video_path: str = "",
                    codec: str = "libx264", quality: int = 18):
         """
         Save frames as video-encoded chunk.
@@ -135,7 +216,8 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
             fps: Frame rate for video
             session_id: Unique session identifier (auto-generated if empty)
             output_dir: Output directory (use default if empty)
-            codec: libx264 or libx265
+            source_video_path: Path to source video for auto codec/bitrate detection
+            codec: libx264 or libx265 (ignored if source_video_path provided)
             quality: CRF value (0-51, lower = better)
 
         Returns:
@@ -166,14 +248,37 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
 
         num_frames, H, W, C = frames_np.shape
 
+        # Auto-detect encoding settings from source video
+        video_info = get_video_encoding_info(source_video_path) if source_video_path else None
+
+        if video_info:
+            # Use source video settings
+            detected_codec = map_codec_to_encoder(video_info['codec_name'])
+            detected_pix_fmt = video_info['pix_fmt']
+            detected_bitrate = video_info['bitrate']
+
+            print(f"ChunkVideoSaver: Detected source video encoding:")
+            print(f"  Codec: {video_info['codec_name']} → {detected_codec}")
+            print(f"  Pixel Format: {detected_pix_fmt}")
+            if detected_bitrate:
+                print(f"  Bitrate: {detected_bitrate / 1000000:.2f} Mbps")
+
+            # Override parameters
+            codec = detected_codec
+            pix_fmt = detected_pix_fmt
+            use_bitrate = detected_bitrate is not None
+        else:
+            # Use manual settings
+            pix_fmt = 'yuv420p'
+            use_bitrate = False
+
         # Find FFmpeg
         ffmpeg_path = find_ffmpeg()
 
         # FFmpeg command for video encoding
         # Key settings for concat compatibility:
-        # - yuv420p: Standard pixel format
         # - GOP size = chunk size: Each chunk starts with keyframe
-        # - Same codec/quality across all chunks
+        # - Same codec/quality/bitrate across all chunks
         cmd = [
             ffmpeg_path,
             '-y',  # Overwrite output file
@@ -185,13 +290,26 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
             '-i', '-',  # Read from stdin
             '-an',  # No audio
             '-vcodec', codec,
-            '-crf', str(quality),
-            '-pix_fmt', 'yuv420p',  # Standard format for compatibility
+        ]
+
+        # Quality/bitrate mode
+        if use_bitrate and video_info['bitrate']:
+            # Use bitrate mode to match source
+            cmd.extend(['-b:v', str(video_info['bitrate'])])
+            cmd.extend(['-maxrate', str(int(video_info['bitrate'] * 1.5))])
+            cmd.extend(['-bufsize', str(int(video_info['bitrate'] * 2))])
+        else:
+            # Use CRF mode
+            cmd.extend(['-crf', str(quality)])
+
+        # Common settings
+        cmd.extend([
+            '-pix_fmt', pix_fmt,
             '-g', str(num_frames),  # GOP size = chunk size (keyframe at start)
             '-preset', 'medium',  # Encoding speed/quality trade-off
             '-movflags', '+faststart',  # Optimize for streaming
             chunk_path
-        ]
+        ])
 
         # Run FFmpeg
         try:
@@ -231,10 +349,16 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
             status='complete'
         )
 
+        # Build encoding info string
+        if use_bitrate and video_info['bitrate']:
+            encoding_info = f"Codec: {codec}, Bitrate: {video_info['bitrate'] / 1000000:.2f} Mbps, Pix fmt: {pix_fmt}"
+        else:
+            encoding_info = f"Codec: {codec}, CRF: {quality}, Pix fmt: {pix_fmt}"
+
         print(
             f"ChunkVideoSaver: Saved chunk {chunk_id} → {chunk_path}\n"
             f"  {num_frames} frames @ {H}×{W}, {fps} fps\n"
-            f"  Codec: {codec}, CRF: {quality}\n"
+            f"  {encoding_info}\n"
             f"  Size: {file_size_mb:.1f}MB"
         )
 
