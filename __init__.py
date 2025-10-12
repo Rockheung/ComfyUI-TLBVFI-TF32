@@ -1,11 +1,34 @@
+# Legacy monolithic node (backward compatibility)
 from .tlbvfi_node import TLBVFI_VFI_TF32
 
+# New chunk-based workflow nodes
+from .nodes import (
+    FramePairSlicer,
+    TLBVFI_Interpolator,
+    ChunkVideoSaver,
+    VideoConcatenator,
+)
+
 NODE_CLASS_MAPPINGS = {
-    "TLBVFI_VFI_TF32": TLBVFI_VFI_TF32
+    # Legacy node (for backward compatibility)
+    "TLBVFI_VFI_TF32": TLBVFI_VFI_TF32,
+
+    # New chunk-based workflow nodes
+    "TLBVFI_FramePairSlicer": FramePairSlicer,
+    "TLBVFI_Interpolator": TLBVFI_Interpolator,
+    "TLBVFI_ChunkVideoSaver": ChunkVideoSaver,
+    "TLBVFI_VideoConcatenator": VideoConcatenator,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "TLBVFI_VFI_TF32": "TLBVFI Frame Interpolation (TF32 Optimized)"
+    # Legacy
+    "TLBVFI_VFI_TF32": "TLBVFI Frame Interpolation (TF32) [Legacy]",
+
+    # Chunk-based workflow
+    "TLBVFI_FramePairSlicer": "TLBVFI Frame Pair Slicer",
+    "TLBVFI_Interpolator": "TLBVFI Interpolator (Chunk Mode)",
+    "TLBVFI_ChunkVideoSaver": "TLBVFI Chunk Saver",
+    "TLBVFI_VideoConcatenator": "TLBVFI Video Concatenator",
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
