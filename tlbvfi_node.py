@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 import argparse
 import gc
+import psutil
 
 import folder_paths
 from comfy.utils import ProgressBar
@@ -196,6 +197,74 @@ def calculate_cleanup_interval(device, frame_shape, times_to_interpolate, num_se
         print(f"TLBVFI: Using default cleanup interval = 5 segments")
         return 5
 
+def calculate_batch_size(frame_shape):
+    """
+    Dynamically calculate optimal batch size based on available CPU RAM.
+
+    This determines how many frames to accumulate before post-processing,
+    enabling streaming processing without holding all frames in memory.
+
+    Args:
+        frame_shape: tuple (channels, height, width)
+
+    Returns:
+        int: Batch size (number of frames to accumulate before processing)
+    """
+    try:
+        # Get system memory information
+        mem = psutil.virtual_memory()
+        available_ram = mem.available  # Available RAM in bytes
+        total_ram = mem.total
+
+        # Calculate frame size
+        # Frame: C × H × W × 4 bytes (FP32)
+        C, H, W = frame_shape
+        frame_size = C * H * W * 4
+
+        # Conservative safety margin: use only 20% of available RAM
+        # This leaves plenty of room for other processes and system operations
+        usable_ram = available_ram * 0.2
+
+        # Calculate how many frames can fit in usable RAM
+        # Account for:
+        # - Original frames in batch
+        # - Processed frames (post-normalization)
+        # - Overhead for tensor operations (~50% extra)
+        frames_per_batch = int(usable_ram / (frame_size * 2.5))
+
+        # Apply constraints
+        min_batch = 50    # Minimum to avoid too frequent processing
+        max_batch = 1000  # Maximum to avoid single batch being too large
+
+        if frames_per_batch < min_batch:
+            batch_size = min_batch
+            print("=" * 80)
+            print("⚠️  TLBVFI WARNING: LOW CPU RAM")
+            print("=" * 80)
+            print(f"Available RAM: {available_ram / 1024**3:.2f}GB / {total_ram / 1024**3:.2f}GB total")
+            print(f"Frame size: {frame_size / 1024**2:.2f}MB")
+            print(f"")
+            print(f"⚠️  Using minimum batch size ({min_batch} frames)")
+            print(f"⚠️  Consider closing other applications to free up RAM")
+            print("=" * 80)
+        elif frames_per_batch > max_batch:
+            batch_size = max_batch
+        else:
+            batch_size = frames_per_batch
+
+        # Log the decision
+        print(f"TLBVFI: Dynamic batch size = {batch_size} frames")
+        print(f"        (CPU RAM: {available_ram / 1024**3:.1f}GB available, "
+              f"Frame: {frame_size / 1024**2:.1f}MB, "
+              f"Batch: {batch_size * frame_size / 1024**3:.2f}GB)")
+
+        return batch_size
+
+    except Exception as e:
+        print(f"TLBVFI Warning: Could not calculate batch size: {e}")
+        print(f"TLBVFI: Using default batch size = 200 frames")
+        return 200
+
 # --- TLBVFI Setup ---
 
 try:
@@ -309,18 +378,37 @@ class TLBVFI_VFI_TF32:
             num_segments=num_segments
         )
 
-        # Streaming output: collect frames incrementally on CPU to avoid GPU memory explosion
-        # This eliminates the need for massive pre-allocated GPU buffer (saves ~9.43GB for t=2)
-        output_frames = []
+        # Calculate optimal batch size for streaming post-processing
+        batch_size = calculate_batch_size(frame_shape)
 
-        # Add first frame
-        output_frames.append(image_tensors[0])
+        # Streaming processing: interpolate and post-process in batches
+        # This eliminates the need to hold all frames in memory
+        processed_chunks = []
+        current_batch = []
 
-        # --- Main Interpolation Loop ---
-        # Process each segment, immediately transfer results to CPU
+        # Helper function to post-process a batch of frames
+        def process_batch(batch):
+            """Post-process a batch of frames and return processed tensor."""
+            if len(batch) == 0:
+                return None
+            # Stack batch frames on CPU
+            batch_tensor = torch.stack(batch, dim=0)
+            # Convert back to ComfyUI's expected format using in-place operations
+            batch_tensor.add_(1.0).div_(2.0)  # In-place: (x + 1.0) / 2.0
+            batch_tensor.clamp_(0, 1)  # In-place: clamp to [0, 1]
+            batch_tensor = batch_tensor.permute(0, 2, 3, 1)  # (N, C, H, W) → (N, H, W, C)
+            return batch_tensor
+
+        # Add first frame to batch
+        current_batch.append(image_tensors[0])
+
+        # --- Main Interpolation Loop with Streaming Post-Processing ---
+        # Interpolate and immediately post-process in batches to minimize memory usage
         # Custom bar_format to always show it/s (not s/it)
         # Use {rate_noinv_fmt} which is always in it/s format
         bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_noinv_fmt}{postfix}]'
+        batch_count = 0
+
         for i in tqdm(range(len(image_tensors) - 1), desc="TLBVFI Interpolating", bar_format=bar_format):
             # Transfer frames to GPU with async copy
             frame1 = image_tensors[i].unsqueeze(0).to(device=device, non_blocking=True)
@@ -338,7 +426,18 @@ class TLBVFI_VFI_TF32:
             # Stream results to CPU immediately (skip first frame as it's already added)
             # Use non_blocking transfer to overlap with next GPU computation
             for frame in current_frames[1:]:
-                output_frames.append(frame.squeeze(0).to('cpu', non_blocking=True))
+                current_batch.append(frame.squeeze(0).to('cpu', non_blocking=True))
+
+                # Post-process batch when it reaches batch_size
+                if len(current_batch) >= batch_size:
+                    processed = process_batch(current_batch)
+                    if processed is not None:
+                        processed_chunks.append(processed)
+                        batch_count += 1
+                    # Clear batch and force garbage collection
+                    current_batch = []
+                    del processed
+                    gc.collect()
 
             # Explicit cleanup to prevent memory fragmentation
             del current_frames, temp_frames, frame1, frame2
@@ -367,75 +466,40 @@ class TLBVFI_VFI_TF32:
         # Clear memory monitoring line and move to new line
         print()  # New line after memory monitoring
 
+        # Process remaining frames in current_batch
+        if len(current_batch) > 0:
+            print(f"TLBVFI: Processing final batch of {len(current_batch)} frames...")
+            processed = process_batch(current_batch)
+            if processed is not None:
+                processed_chunks.append(processed)
+                batch_count += 1
+            del current_batch, processed
+            gc.collect()
+
         # Final comprehensive memory cleanup
         if device.type == 'cuda':
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
         gc.collect()  # Final Python GC to release all shared memory
 
-        # --- Unload model from GPU before post-processing ---
-        # Critical: Model occupies ~10GB, must be freed before chunked post-processing
-        print("TLBVFI: Unloading model from GPU to free memory for post-processing...")
+        # --- Unload model from GPU ---
+        print("TLBVFI: Unloading model from GPU...")
         if device.type == 'cuda':
-            # Move model to CPU to free GPU memory
             model = model.cpu()
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
 
-            # Report freed memory
             allocated_after = torch.cuda.memory_allocated(device) / 1024**3
             reserved_after = torch.cuda.memory_reserved(device) / 1024**3
             print(f"TLBVFI: GPU Memory after model unload: {allocated_after:.2f}GB allocated, {reserved_after:.2f}GB reserved")
 
-        del model  # Delete model reference
+        del model
         gc.collect()
-
         if device.type == 'cuda':
             torch.cuda.empty_cache()
 
-        # --- Process output frames in chunks to avoid CPU RAM OOM ---
-        # Problem: Large videos (3600+ frames) × 1920×1080×3×4 bytes = 89GB+ CPU RAM required
-        # Solution: Process in chunks on CPU (GPU causes Windows shared memory OOM)
-
-        print(f"TLBVFI: Processing {len(output_frames)} output frames in chunks to avoid CPU RAM OOM...")
-        print("TLBVFI: Using CPU-only post-processing to avoid Windows GPU shared memory issues...")
-
-        # Calculate chunk size for CPU processing
-        # Conservative to avoid memory issues
-        chunk_size = 500  # Larger chunks OK on CPU since no GPU transfer overhead
-
-        print(f"TLBVFI: Using chunk size of {chunk_size} frames (CPU-only)")
-
-        processed_chunks = []
-        total_frames = len(output_frames)
-
-        # Custom bar_format to always show chunk/s (not s/chunk)
-        # Use {rate_noinv_fmt} which is always in non-inverted format
-        bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_noinv_fmt}{postfix}]'
-        for chunk_start in tqdm(range(0, total_frames, chunk_size), desc="TLBVFI Post-processing", bar_format=bar_format, unit='chunk'):
-            chunk_end = min(chunk_start + chunk_size, total_frames)
-
-            # Stack chunk frames on CPU
-            chunk_frames = output_frames[chunk_start:chunk_end]
-            chunk_tensor = torch.stack(chunk_frames, dim=0)
-
-            # Process entirely on CPU (no GPU transfer to avoid Windows shared memory OOM)
-            # Convert back to ComfyUI's expected format using in-place operations
-            chunk_tensor.add_(1.0).div_(2.0)  # In-place: (x + 1.0) / 2.0
-            chunk_tensor.clamp_(0, 1)  # In-place: clamp to [0, 1]
-            chunk_tensor = chunk_tensor.permute(0, 2, 3, 1)  # (N, C, H, W) → (N, H, W, C)
-
-            processed_chunks.append(chunk_tensor)
-
-            # Clean up chunk to free memory immediately
-            del chunk_frames, chunk_tensor
-            gc.collect()
-
-        # Clear output_frames list to free CPU memory before concatenation
-        del output_frames
-        gc.collect()
-
-        print("TLBVFI: Concatenating processed chunks...")
+        # --- Concatenate processed chunks ---
+        print(f"TLBVFI: Concatenating {batch_count} processed batches...")
         final_tensors = torch.cat(processed_chunks, dim=0)
 
         # Final cleanup
@@ -444,4 +508,5 @@ class TLBVFI_VFI_TF32:
         if device.type == 'cuda':
             torch.cuda.empty_cache()
 
+        print(f"TLBVFI: Complete! Generated {len(final_tensors)} frames.")
         return (final_tensors, )
