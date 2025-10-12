@@ -208,16 +208,23 @@ class TLBVFI_VFI_TF32:
                 current_frames = temp_frames
 
             # Stream results to CPU immediately (skip first frame as it's already added)
+            # Use non_blocking transfer to overlap with next GPU computation
             for frame in current_frames[1:]:
-                output_frames.append(frame.squeeze(0).cpu())
+                output_frames.append(frame.squeeze(0).cpu(non_blocking=True))
 
             # Explicit cleanup to prevent memory fragmentation
             del current_frames, temp_frames, frame1, frame2
 
-            # Force GPU memory cache cleanup after each segment
-            torch.cuda.empty_cache()
+            # Periodic GPU memory cache cleanup (every 10 segments)
+            # Reduces overhead while preventing fragmentation
+            if (i + 1) % 10 == 0:
+                torch.cuda.empty_cache()
 
             gui_pbar.update(1)
+
+        # Final GPU memory cleanup
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
 
         # Stack frames on CPU into final tensor
         print("TLBVFI: Stacking output frames...")
