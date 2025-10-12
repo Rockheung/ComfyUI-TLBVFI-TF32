@@ -350,15 +350,19 @@ class TLBVFI_VFI_TF32:
                     torch.cuda.synchronize()  # Wait for all GPU operations to complete
                     torch.cuda.empty_cache()  # Clear CUDA memory cache
 
-                    # Print memory usage for monitoring
+                    # Print memory usage for monitoring (same line update)
                     # More frequent for tight memory, less frequent for ample memory
                     monitor_interval = min(50, cleanup_interval * 10)
                     if (i + 1) % monitor_interval == 0:
                         allocated = torch.cuda.memory_allocated(device) / 1024**3
                         reserved = torch.cuda.memory_reserved(device) / 1024**3
-                        print(f"TLBVFI: Segment {i+1}/{num_segments} - GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+                        # Use \r to overwrite same line, pad with spaces to clear previous text
+                        print(f"\r[GPU Memory] Segment {i+1}/{num_segments}: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved    ", end='', flush=True)
 
             gui_pbar.update(1)
+
+        # Clear memory monitoring line and move to new line
+        print()  # New line after memory monitoring
 
         # Final comprehensive memory cleanup
         if device.type == 'cuda':
