@@ -241,6 +241,16 @@ TLBVFI frame interpolator optimized for chunk-based processing.
 
                 if idx == 0:
                     print(f"  Debug: Saved first frame size = {img.size} (width x height)")
+                    print(f"  Debug: Image mode = {img.mode}")
+                    print(f"  Debug: Sample pixels at (0,0) = {frame_np[0, 0, :]}")
+                    print(f"  Debug: Sample pixels at (10,10) = {frame_np[10, 10, :]}")
+                    print(f"  Debug: Actual saved file path = {img_path}")
+
+                    # Verify saved image by reading it back
+                    saved_img = Image.open(img_path)
+                    print(f"  Debug: Read back saved image size = {saved_img.size}")
+                    saved_np = np.array(saved_img)
+                    print(f"  Debug: Read back numpy shape = {saved_np.shape}")
 
             print(f"TLBVFI_Interpolator: Saved {len(processed_frames)} frames to {save_dir}")
 
