@@ -73,8 +73,8 @@ class VideoConcatenator:
             }
         }
 
-    RETURN_TYPES = ("STRING", "INT", "STRING", "IMAGE")
-    RETURN_NAMES = ("video_path", "total_frames", "stats", "frames")
+    RETURN_TYPES = ()
+    OUTPUT_NODE = True
     FUNCTION = "concatenate"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
 
@@ -85,14 +85,13 @@ Concatenate video chunks using FFmpeg (no re-encoding).
 - Merges all video chunks into final video file
 - Uses FFmpeg concat demuxer (fast, lossless)
 - No re-encoding = no quality loss
-- Final step in chunk-based workflow
+- Final step in chunk-based workflow (OUTPUT NODE)
 
 🎯 Usage:
 1. Enter session_id from ChunkVideoSaver
 2. Set output_filename (optional, auto-generated if empty)
 3. Set cleanup_chunks=True to delete chunks after merge
-4. Set return_frames=False for video file only (recommended)
-5. Set return_frames=True to also load frames into memory
+4. Output displayed in UI (video path, frame count, stats)
 
 ⚡ Features:
 - FFmpeg concat demuxer: No re-encoding required
@@ -104,14 +103,16 @@ Concatenate video chunks using FFmpeg (no re-encoding).
 - Video file: Same codec as chunks (H.264/H.265)
 - Size: Sum of chunk sizes + minimal container overhead
 - Format: MP4 (playable everywhere)
-
-⚠️ Memory:
-- return_frames=False: Minimal memory (~MB)
-- return_frames=True: Full video in RAM (use for short videos only)
+- UI Display: Path, frame count, size, and stats
 
 📊 Performance:
 - 1800 chunks: ~10-30 seconds to concat
 - No GPU needed (pure demuxing operation)
+
+⚠️ Note:
+- This is an OUTPUT_NODE (terminal node)
+- Cannot connect outputs to other nodes
+- Results shown in node UI
     """
 
     def concatenate(self, session_id: str, output_dir: str = "",
@@ -125,13 +126,14 @@ Concatenate video chunks using FFmpeg (no re-encoding).
             output_dir: Output directory (use default if empty)
             output_filename: Output filename (auto-generate if empty)
             cleanup_chunks: Delete chunk files after concatenation
-            return_frames: Load final video into memory as IMAGE tensor
+            return_frames: (Ignored - for backward compatibility)
 
         Returns:
-            video_path: Path to final concatenated video
-            total_frames: Total number of frames
-            stats: JSON string with statistics
-            frames: IMAGE tensor if return_frames=True, else dummy tensor
+            dict with "ui" key containing:
+                - video_path: Path to final concatenated video
+                - total_frames: Total number of frames
+                - stats: JSON string with statistics
+                - output_size_mb: File size in MB
         """
         if not session_id:
             raise ValueError("session_id is required. Provide the session_id from ChunkVideoSaver.")
@@ -249,16 +251,6 @@ Concatenate video chunks using FFmpeg (no re-encoding).
         print(f"  Frames: {total_frames}")
         print(f"  Size: {output_size_mb:.1f}MB")
 
-        # Optional: Load frames into memory
-        frames = None
-        if return_frames:
-            print(f"VideoConcatenator: Loading video into memory...")
-            frames = self._load_video_to_tensor(output_path)
-            print(f"VideoConcatenator: Loaded {frames.shape[0]} frames into memory")
-        else:
-            # Return dummy tensor
-            frames = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
-
         # Cleanup
         os.remove(concat_list_path)
 
@@ -266,7 +258,15 @@ Concatenate video chunks using FFmpeg (no re-encoding).
             print(f"VideoConcatenator: Cleaning up chunks in {session_dir}")
             cleanup_session(session_dir, delete_chunks=True, delete_manifest=True)
 
-        return (output_path, total_frames, stats_json, frames)
+        # Return UI dict (OUTPUT_NODE format)
+        return {
+            "ui": {
+                "video_path": [output_path],
+                "total_frames": [total_frames],
+                "stats": [stats_json],
+                "output_size_mb": [f"{output_size_mb:.1f}MB"]
+            }
+        }
 
     def _load_video_to_tensor(self, video_path: str) -> torch.Tensor:
         """

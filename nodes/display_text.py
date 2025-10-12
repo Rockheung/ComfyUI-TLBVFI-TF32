@@ -16,7 +16,7 @@ class DisplayText:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "text": ("STRING", {"default": "", "multiline": True}),
+                "text": ("STRING", {"forceInput": True}),
             }
         }
 
