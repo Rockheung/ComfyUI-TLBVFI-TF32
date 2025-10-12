@@ -29,7 +29,8 @@ try:
         cleanup_memory,
         get_memory_stats,
         print_memory_summary,
-        create_session,
+        create_session_id,
+        create_manifest,
         save_manifest,
         load_manifest,
     )
@@ -42,7 +43,8 @@ except ImportError:
         cleanup_memory,
         get_memory_stats,
         print_memory_summary,
-        create_session,
+        create_session_id,
+        create_manifest,
         save_manifest,
         load_manifest,
     )
@@ -202,7 +204,8 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             session_id = datetime.now().strftime("tlbvfi_%Y%m%d_%H%M%S")
 
         output_dir = folder_paths.get_output_directory()
-        session_dir = create_session(output_dir, session_id)
+        session_dir = os.path.join(output_dir, "tlbvfi_chunks", session_id)
+        os.makedirs(session_dir, exist_ok=True)
 
         print(f"TLBVFI_ChunkProcessor: Session directory: {session_dir}\n")
 
@@ -263,7 +266,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             })
 
             # Save manifest progressively
-            save_manifest(session_dir, manifest)
+            save_manifest(manifest, session_dir)
 
             # Cleanup
             del interpolated_frames, frame_pair
