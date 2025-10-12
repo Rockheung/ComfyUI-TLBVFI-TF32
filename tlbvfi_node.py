@@ -215,10 +215,18 @@ class TLBVFI_VFI_TF32:
             # Explicit cleanup to prevent memory fragmentation
             del current_frames, temp_frames, frame1, frame2
 
-            # Periodic GPU memory cache cleanup (every 10 segments)
-            # Reduces overhead while preventing fragmentation
-            if (i + 1) % 10 == 0:
-                torch.cuda.empty_cache()
+            # More aggressive memory management for long videos
+            # Synchronize and clear cache every 5 segments to prevent OOM
+            if (i + 1) % 5 == 0:
+                if device.type == 'cuda':
+                    torch.cuda.synchronize()  # Wait for all GPU operations to complete
+                    torch.cuda.empty_cache()  # Clear memory cache
+
+                    # Optional: Print memory usage for debugging
+                    if (i + 1) % 50 == 0:
+                        allocated = torch.cuda.memory_allocated(device) / 1024**3
+                        reserved = torch.cuda.memory_reserved(device) / 1024**3
+                        print(f"TLBVFI: Segment {i+1}/{len(image_tensors)-1} - GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
 
             gui_pbar.update(1)
 
