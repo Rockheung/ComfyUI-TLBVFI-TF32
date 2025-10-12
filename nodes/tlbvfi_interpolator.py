@@ -11,16 +11,18 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+parent_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(parent_dir))
 
-from utils import (
-    load_tlbvfi_model,
-    enable_tf32_if_available,
-    enable_cudnn_benchmark,
-    cleanup_memory,
-    get_memory_stats,
-    print_memory_summary,
-)
+# Use absolute import to avoid conflicts with ComfyUI's utils
+import utils as tlbvfi_utils
+
+load_tlbvfi_model = tlbvfi_utils.load_tlbvfi_model
+enable_tf32_if_available = tlbvfi_utils.enable_tf32_if_available
+enable_cudnn_benchmark = tlbvfi_utils.enable_cudnn_benchmark
+cleanup_memory = tlbvfi_utils.cleanup_memory
+get_memory_stats = tlbvfi_utils.get_memory_stats
+print_memory_summary = tlbvfi_utils.print_memory_summary
 
 import folder_paths
 
