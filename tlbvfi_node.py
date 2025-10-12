@@ -366,20 +366,59 @@ class TLBVFI_VFI_TF32:
             torch.cuda.empty_cache()
         gc.collect()  # Final Python GC to release all shared memory
 
+        # --- Unload model from GPU before post-processing ---
+        # Critical: Model occupies ~10GB, must be freed before chunked post-processing
+        print("TLBVFI: Unloading model from GPU to free memory for post-processing...")
+        if device.type == 'cuda':
+            # Move model to CPU to free GPU memory
+            model = model.cpu()
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+
+            # Report freed memory
+            allocated_after = torch.cuda.memory_allocated(device) / 1024**3
+            reserved_after = torch.cuda.memory_reserved(device) / 1024**3
+            print(f"TLBVFI: GPU Memory after model unload: {allocated_after:.2f}GB allocated, {reserved_after:.2f}GB reserved")
+
+        del model  # Delete model reference
+        gc.collect()
+
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
+
         # --- Process output frames in chunks to avoid CPU RAM OOM ---
         # Problem: Large videos (3600+ frames) × 1920×1080×3×4 bytes = 89GB+ CPU RAM required
         # Solution: Process in chunks on GPU, then move to CPU
 
         print(f"TLBVFI: Processing {len(output_frames)} output frames in chunks to avoid CPU RAM OOM...")
 
-        # Calculate optimal chunk size based on GPU memory
-        # Assume we can safely use 8GB of GPU memory for post-processing
+        # Calculate optimal chunk size based on AVAILABLE GPU memory (after model unload)
         if device.type == 'cuda':
             C, H, W = frame_shape
             bytes_per_frame = C * H * W * 4  # FP32
-            max_chunk_memory = 8 * 1024**3  # 8GB
-            chunk_size = max(1, int(max_chunk_memory / bytes_per_frame))
-            chunk_size = min(chunk_size, 500)  # Cap at 500 frames per chunk for safety
+
+            # Query actual available GPU memory
+            total_memory = torch.cuda.get_device_properties(device).total_memory
+            reserved_memory = torch.cuda.memory_reserved(device)
+            available_memory = total_memory - reserved_memory
+
+            # Use 50% of available memory for post-processing (conservative for Windows)
+            is_windows = sys.platform.startswith('win')
+            if is_windows:
+                usable_memory = available_memory * 0.3  # Very conservative for Windows shared memory
+            else:
+                usable_memory = available_memory * 0.5  # 50% for Linux/Mac
+
+            # Calculate chunk size
+            chunk_size = max(1, int(usable_memory / bytes_per_frame))
+
+            # Apply limits
+            min_chunk = 50  # Minimum 50 frames to avoid excessive overhead
+            max_chunk = 300  # Reduced from 500 to be more conservative
+            chunk_size = max(min_chunk, min(chunk_size, max_chunk))
+
+            print(f"TLBVFI: GPU Memory available for post-processing: {available_memory / 1024**3:.2f}GB")
+            print(f"TLBVFI: Calculated usable memory: {usable_memory / 1024**3:.2f}GB")
         else:
             chunk_size = 100  # Conservative for CPU-only processing
 
