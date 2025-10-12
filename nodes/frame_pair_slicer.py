@@ -22,12 +22,15 @@ class FramePairSlicer:
         return {
             "required": {
                 "images": ("IMAGE",),  # (N, H, W, C) from VHS LoadVideo
+            },
+            "optional": {
                 "pair_index": ("INT", {
                     "default": 0,
                     "min": 0,
                     "max": 999999,
                     "step": 1,
-                    "display": "number"
+                    "display": "number",
+                    "forceInput": False  # Allow both widget and input connection
                 }),
             }
         }
@@ -53,7 +56,7 @@ Extract consecutive frame pairs from video for chunk-based processing.
 💾 Memory: Only 2 frames in memory (~200MB for 4K)
     """
 
-    def slice_pair(self, images: torch.Tensor, pair_index: int):
+    def slice_pair(self, images: torch.Tensor, pair_index: int = 0):
         """
         Extract a frame pair for interpolation.
 
