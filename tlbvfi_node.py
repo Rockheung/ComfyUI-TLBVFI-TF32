@@ -388,41 +388,16 @@ class TLBVFI_VFI_TF32:
 
         # --- Process output frames in chunks to avoid CPU RAM OOM ---
         # Problem: Large videos (3600+ frames) × 1920×1080×3×4 bytes = 89GB+ CPU RAM required
-        # Solution: Process in chunks on GPU, then move to CPU
+        # Solution: Process in chunks on CPU (GPU causes Windows shared memory OOM)
 
         print(f"TLBVFI: Processing {len(output_frames)} output frames in chunks to avoid CPU RAM OOM...")
+        print("TLBVFI: Using CPU-only post-processing to avoid Windows GPU shared memory issues...")
 
-        # Calculate optimal chunk size based on AVAILABLE GPU memory (after model unload)
-        if device.type == 'cuda':
-            C, H, W = frame_shape
-            bytes_per_frame = C * H * W * 4  # FP32
+        # Calculate chunk size for CPU processing
+        # Conservative to avoid memory issues
+        chunk_size = 500  # Larger chunks OK on CPU since no GPU transfer overhead
 
-            # Query actual available GPU memory
-            total_memory = torch.cuda.get_device_properties(device).total_memory
-            reserved_memory = torch.cuda.memory_reserved(device)
-            available_memory = total_memory - reserved_memory
-
-            # Use 50% of available memory for post-processing (conservative for Windows)
-            is_windows = sys.platform.startswith('win')
-            if is_windows:
-                usable_memory = available_memory * 0.3  # Very conservative for Windows shared memory
-            else:
-                usable_memory = available_memory * 0.5  # 50% for Linux/Mac
-
-            # Calculate chunk size
-            chunk_size = max(1, int(usable_memory / bytes_per_frame))
-
-            # Apply limits
-            min_chunk = 50  # Minimum 50 frames to avoid excessive overhead
-            max_chunk = 300  # Reduced from 500 to be more conservative
-            chunk_size = max(min_chunk, min(chunk_size, max_chunk))
-
-            print(f"TLBVFI: GPU Memory available for post-processing: {available_memory / 1024**3:.2f}GB")
-            print(f"TLBVFI: Calculated usable memory: {usable_memory / 1024**3:.2f}GB")
-        else:
-            chunk_size = 100  # Conservative for CPU-only processing
-
-        print(f"TLBVFI: Using chunk size of {chunk_size} frames")
+        print(f"TLBVFI: Using chunk size of {chunk_size} frames (CPU-only)")
 
         processed_chunks = []
         total_frames = len(output_frames)
@@ -430,31 +405,20 @@ class TLBVFI_VFI_TF32:
         for chunk_start in tqdm(range(0, total_frames, chunk_size), desc="TLBVFI Post-processing"):
             chunk_end = min(chunk_start + chunk_size, total_frames)
 
-            # Stack chunk frames on CPU first
+            # Stack chunk frames on CPU
             chunk_frames = output_frames[chunk_start:chunk_end]
             chunk_tensor = torch.stack(chunk_frames, dim=0)
 
-            # Move to GPU for processing (if available)
-            if device.type == 'cuda':
-                chunk_tensor = chunk_tensor.to(device, non_blocking=True)
-                torch.cuda.synchronize()
-
+            # Process entirely on CPU (no GPU transfer to avoid Windows shared memory OOM)
             # Convert back to ComfyUI's expected format using in-place operations
             chunk_tensor.add_(1.0).div_(2.0)  # In-place: (x + 1.0) / 2.0
             chunk_tensor.clamp_(0, 1)  # In-place: clamp to [0, 1]
             chunk_tensor = chunk_tensor.permute(0, 2, 3, 1)  # (N, C, H, W) → (N, H, W, C)
 
-            # Move back to CPU
-            chunk_tensor = chunk_tensor.to('cpu', non_blocking=True)
-            if device.type == 'cuda':
-                torch.cuda.synchronize()
-
             processed_chunks.append(chunk_tensor)
 
             # Clean up chunk to free memory immediately
             del chunk_frames, chunk_tensor
-            if device.type == 'cuda':
-                torch.cuda.empty_cache()
             gc.collect()
 
         # Clear output_frames list to free CPU memory before concatenation
