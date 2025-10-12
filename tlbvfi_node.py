@@ -88,9 +88,6 @@ def calculate_cleanup_interval(device, frame_shape, times_to_interpolate, num_se
     Dynamically calculate optimal cleanup interval based on available GPU memory,
     video resolution, and interpolation settings.
 
-    IMPORTANT: On Windows, NVIDIA GPUs use both VRAM and Shared GPU Memory (system RAM).
-    This function accounts for both to prevent OOM errors.
-
     Args:
         device: torch.device (CUDA device)
         frame_shape: tuple (channels, height, width)
@@ -109,22 +106,9 @@ def calculate_cleanup_interval(device, frame_shape, times_to_interpolate, num_se
         reserved_memory = torch.cuda.memory_reserved(device)
         allocated_memory = torch.cuda.memory_allocated(device)
 
-        # Calculate available memory (with aggressive safety margin for Windows shared memory)
-        # Windows uses shared GPU memory (system RAM) which isn't tracked by PyTorch
-        # We need much larger safety margin to prevent shared memory exhaustion
+        # Calculate available memory with standard safety margin
         available_memory = total_memory - reserved_memory
-
-        # Detect Windows and use more conservative memory estimation
-        is_windows = sys.platform.startswith('win')
-        if is_windows:
-            # On Windows, shared GPU memory can exhaust system RAM
-            # Use very conservative estimate: only 40% of reported VRAM is safe to use
-            safety_margin = total_memory * 0.6  # 60% safety margin
-            print("TLBVFI: Windows detected - using conservative memory estimation for shared GPU memory")
-        else:
-            # Linux/Mac: standard safety margin
-            safety_margin = 2 * 1024**3  # 2GB safety margin
-
+        safety_margin = 2 * 1024**3  # 2GB safety margin
         usable_memory = max(available_memory - safety_margin, 1 * 1024**3)
 
         # Estimate memory per segment
@@ -168,8 +152,6 @@ def calculate_cleanup_interval(device, frame_shape, times_to_interpolate, num_se
             print(f"   - Reducing video resolution")
             print(f"   - Using times_to_interpolate=1 instead of {times_to_interpolate}")
             print(f"   - Processing in smaller batches")
-            if is_windows:
-                print(f"   - Windows shared GPU memory (32GB+) may exhaust system RAM")
             print("=" * 80)
         elif segments_before_cleanup > max_interval:
             # Plenty of memory, use reasonable default
@@ -179,7 +161,7 @@ def calculate_cleanup_interval(device, frame_shape, times_to_interpolate, num_se
             interval = segments_before_cleanup
 
         # For long videos (>500 segments), force more frequent cleanup regardless of calculation
-        # This prevents shared GPU memory exhaustion on Windows over time
+        # This prevents GPU memory exhaustion over time
         if num_segments > 500:
             interval = min(interval, 3)  # Max 3 segments for long videos
             print(f"TLBVFI: Long video detected ({num_segments} segments) - limiting cleanup interval to {interval}")
@@ -442,8 +424,8 @@ class TLBVFI_VFI_TF32:
             # Explicit cleanup to prevent memory fragmentation
             del current_frames, temp_frames, frame1, frame2
 
-            # Aggressive memory management for Windows shared GPU memory
-            # Force Python GC every segment to release shared memory immediately
+            # Aggressive memory management
+            # Force Python GC every segment to release memory immediately
             gc.collect()
 
             # Dynamic GPU memory cleanup based on calculated cleanup interval
@@ -480,7 +462,7 @@ class TLBVFI_VFI_TF32:
         if device.type == 'cuda':
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
-        gc.collect()  # Final Python GC to release all shared memory
+        gc.collect()  # Final Python GC to release all memory
 
         # --- Unload model from GPU ---
         print("TLBVFI: Unloading model from GPU...")
