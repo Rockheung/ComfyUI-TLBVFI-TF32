@@ -319,8 +319,9 @@ class TLBVFI_VFI_TF32:
         # --- Main Interpolation Loop ---
         # Process each segment, immediately transfer results to CPU
         # Custom bar_format to always show it/s (not s/it)
-        bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate:.2f}it/s{postfix}]'
-        for i in tqdm(range(len(image_tensors) - 1), desc="TLBVFI Interpolating", bar_format=bar_format):
+        # Use {rate_noinv_fmt} which is always in it/s format
+        bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_noinv_fmt}{postfix}]'
+        for i in tqdm(range(len(image_tensors) - 1), desc="TLBVFI Interpolating", bar_format=bar_format, unit='seg'):
             # Transfer frames to GPU with async copy
             frame1 = image_tensors[i].unsqueeze(0).to(device=device, non_blocking=True)
             frame2 = image_tensors[i+1].unsqueeze(0).to(device=device, non_blocking=True)
@@ -409,8 +410,9 @@ class TLBVFI_VFI_TF32:
         total_frames = len(output_frames)
 
         # Custom bar_format to always show it/s (not s/it)
-        bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate:.2f}it/s{postfix}]'
-        for chunk_start in tqdm(range(0, total_frames, chunk_size), desc="TLBVFI Post-processing", bar_format=bar_format):
+        # Use {rate_noinv_fmt} which is always in it/s format
+        bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_noinv_fmt}{postfix}]'
+        for chunk_start in tqdm(range(0, total_frames, chunk_size), desc="TLBVFI Post-processing", bar_format=bar_format, unit='chunk'):
             chunk_end = min(chunk_start + chunk_size, total_frames)
 
             # Stack chunk frames on CPU
