@@ -210,7 +210,7 @@ class TLBVFI_VFI_TF32:
             # Stream results to CPU immediately (skip first frame as it's already added)
             # Use non_blocking transfer to overlap with next GPU computation
             for frame in current_frames[1:]:
-                output_frames.append(frame.squeeze(0).cpu(non_blocking=True))
+                output_frames.append(frame.squeeze(0).to('cpu', non_blocking=True))
 
             # Explicit cleanup to prevent memory fragmentation
             del current_frames, temp_frames, frame1, frame2
