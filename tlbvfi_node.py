@@ -366,13 +366,69 @@ class TLBVFI_VFI_TF32:
             torch.cuda.empty_cache()
         gc.collect()  # Final Python GC to release all shared memory
 
-        # Stack frames on CPU into final tensor
-        print("TLBVFI: Stacking output frames...")
-        final_tensors = torch.stack(output_frames, dim=0)
-        
-        # --- Convert back to ComfyUI's expected format ---
-        final_tensors = (final_tensors + 1.0) / 2.0
-        final_tensors = final_tensors.clamp(0, 1)
-        final_tensors = final_tensors.permute(0, 2, 3, 1)
+        # --- Process output frames in chunks to avoid CPU RAM OOM ---
+        # Problem: Large videos (3600+ frames) × 1920×1080×3×4 bytes = 89GB+ CPU RAM required
+        # Solution: Process in chunks on GPU, then move to CPU
+
+        print(f"TLBVFI: Processing {len(output_frames)} output frames in chunks to avoid CPU RAM OOM...")
+
+        # Calculate optimal chunk size based on GPU memory
+        # Assume we can safely use 8GB of GPU memory for post-processing
+        if device.type == 'cuda':
+            C, H, W = frame_shape
+            bytes_per_frame = C * H * W * 4  # FP32
+            max_chunk_memory = 8 * 1024**3  # 8GB
+            chunk_size = max(1, int(max_chunk_memory / bytes_per_frame))
+            chunk_size = min(chunk_size, 500)  # Cap at 500 frames per chunk for safety
+        else:
+            chunk_size = 100  # Conservative for CPU-only processing
+
+        print(f"TLBVFI: Using chunk size of {chunk_size} frames")
+
+        processed_chunks = []
+        total_frames = len(output_frames)
+
+        for chunk_start in tqdm(range(0, total_frames, chunk_size), desc="TLBVFI Post-processing"):
+            chunk_end = min(chunk_start + chunk_size, total_frames)
+
+            # Stack chunk frames on CPU first
+            chunk_frames = output_frames[chunk_start:chunk_end]
+            chunk_tensor = torch.stack(chunk_frames, dim=0)
+
+            # Move to GPU for processing (if available)
+            if device.type == 'cuda':
+                chunk_tensor = chunk_tensor.to(device, non_blocking=True)
+                torch.cuda.synchronize()
+
+            # Convert back to ComfyUI's expected format using in-place operations
+            chunk_tensor.add_(1.0).div_(2.0)  # In-place: (x + 1.0) / 2.0
+            chunk_tensor.clamp_(0, 1)  # In-place: clamp to [0, 1]
+            chunk_tensor = chunk_tensor.permute(0, 2, 3, 1)  # (N, C, H, W) → (N, H, W, C)
+
+            # Move back to CPU
+            chunk_tensor = chunk_tensor.to('cpu', non_blocking=True)
+            if device.type == 'cuda':
+                torch.cuda.synchronize()
+
+            processed_chunks.append(chunk_tensor)
+
+            # Clean up chunk to free memory immediately
+            del chunk_frames, chunk_tensor
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
+            gc.collect()
+
+        # Clear output_frames list to free CPU memory before concatenation
+        del output_frames
+        gc.collect()
+
+        print("TLBVFI: Concatenating processed chunks...")
+        final_tensors = torch.cat(processed_chunks, dim=0)
+
+        # Final cleanup
+        del processed_chunks
+        gc.collect()
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
 
         return (final_tensors, )
