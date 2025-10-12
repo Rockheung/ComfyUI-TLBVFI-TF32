@@ -247,6 +247,7 @@ class ChunkVideoSaver:
 
     RETURN_TYPES = ("STRING", "STRING", "INT", "STRING")
     RETURN_NAMES = ("session_id", "chunk_path", "num_frames", "file_size_mb")
+    OUTPUT_NODE = True
     FUNCTION = "save_chunk"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
 
@@ -259,6 +260,7 @@ Save interpolated frames as video-encoded chunks (H.264/H.265).
 - Each chunk is independently playable
 - Auto-detects and preserves source video quality
 - Smart fallback to YouTube upload specs for incompatible formats
+- Can be used as terminal node (OUTPUT_NODE) or pass data to VideoConcatenator
 
 🎯 Usage:
 1. Connect interpolated_frames from TLBVFI_Interpolator
