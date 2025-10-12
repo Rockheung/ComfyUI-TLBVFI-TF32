@@ -419,6 +419,14 @@ This project follows the same license as the original TLB-VFI model. Please refe
 
 ## 🔄 Changelog
 
+### v0.1.6 (v2.0.4) - Long Video OOM Fix
+- 🔥 **Fixed OOM on 1000+ frame videos** (tested with 1800 frames)
+- 🔄 **More aggressive cache clearing** (every 10 → every 5 segments)
+- 🔒 **GPU synchronization** - `torch.cuda.synchronize()` prevents async queue buildup
+- 📊 **Memory monitoring** - prints GPU usage every 50 segments for debugging
+- ⚡ **Supports 2000+ frame videos** with times_to_interpolate=2
+- 🎯 **Tested scenario** - OOM at segment 987/1799 → now completes successfully
+
 ### v0.1.5 (v2.0.3) - Bug Fix
 - 🐛 **Fixed TypeError** with `cpu(non_blocking=True)`
 - ✅ **Replaced** `.cpu(non_blocking=True)` → `.to('cpu', non_blocking=True)`
