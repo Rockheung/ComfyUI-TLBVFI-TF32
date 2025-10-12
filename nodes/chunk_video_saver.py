@@ -1,14 +1,17 @@
 """
-ChunkVideoSaver Node for TLBVFI Chunk-Based Workflow
+ChunkVideoSaver - Video-Encoded Chunks
 
-Saves interpolated frame chunks to disk with metadata tracking.
-Enables memory-efficient processing by immediately persisting results.
+Saves interpolated frames as H.264/H.265 encoded video chunks.
+Efficient disk usage with concat-compatible MP4 files.
 """
 
 import torch
 import os
 import sys
+import subprocess
+import shutil
 from pathlib import Path
+import numpy as np
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,13 +24,33 @@ from utils import (
 import folder_paths
 
 
+def find_ffmpeg():
+    """Find FFmpeg executable."""
+    # Try common locations
+    ffmpeg_paths = [
+        'ffmpeg',  # System PATH
+        '/usr/bin/ffmpeg',
+        '/usr/local/bin/ffmpeg',
+        shutil.which('ffmpeg'),
+    ]
+
+    for path in ffmpeg_paths:
+        if path and shutil.which(path if path == 'ffmpeg' else None) or (path != 'ffmpeg' and os.path.exists(path)):
+            return path if path == 'ffmpeg' else path
+
+    # If nothing found, return 'ffmpeg' and hope it's in PATH
+    return 'ffmpeg'
+
+
 class ChunkVideoSaver:
     """
-    Save interpolated frames to disk as chunks with manifest tracking.
+    Save interpolated frames as H.264/H.265 encoded video chunks.
 
-    This node immediately persists frames to disk, freeing memory for
-    processing subsequent chunks. Chunks are tracked in a manifest for
-    later concatenation.
+    Disk usage per chunk (9 frames @ 4K):
+    - H.264 CRF18: ~50-100MB
+    - H.265 CRF23: ~30-50MB
+
+    Chunks are concat-compatible (no re-encoding needed).
     """
 
     @classmethod
@@ -42,56 +65,84 @@ class ChunkVideoSaver:
                     "step": 1,
                     "display": "number"
                 }),
+                "fps": ("INT", {
+                    "default": 30,
+                    "min": 1,
+                    "max": 120,
+                    "step": 1,
+                }),
             },
             "optional": {
                 "session_id": ("STRING", {"default": ""}),  # Auto-generate if empty
                 "output_dir": ("STRING", {"default": ""}),  # Use ComfyUI default if empty
+                "codec": (["libx264", "libx265"],),  # H.264 or H.265
+                "quality": ("INT", {
+                    "default": 18,  # CRF value (lower = better quality)
+                    "min": 0,
+                    "max": 51,
+                    "step": 1,
+                }),
             }
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "INT")
-    RETURN_NAMES = ("session_id", "chunk_path", "num_frames")
+    RETURN_TYPES = ("STRING", "STRING", "INT", "STRING")
+    RETURN_NAMES = ("session_id", "chunk_path", "num_frames", "file_size_mb")
     FUNCTION = "save_chunk"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
 
     DESCRIPTION = """
-Save interpolated frames to disk as chunks with manifest tracking.
+Save interpolated frames as video-encoded chunks (H.264/H.265).
 
 📌 Purpose:
-- Immediately persists frames to disk, freeing memory
-- Tracks chunks in JSON manifest for later concatenation
-- Enables processing unlimited video length
+- Encodes frames to H.264/H.265 for efficient disk usage
+- Concat-compatible (no re-encoding needed for final video)
+- Each chunk is independently playable
 
 🎯 Usage:
 1. Connect interpolated_frames from TLBVFI_Interpolator
 2. Set chunk_id (0, 1, 2, ...) - increment for each chunk
-3. Leave session_id empty for auto-generation (first chunk)
-4. Use same session_id for all chunks in same video
+3. Set fps (should match source video)
+4. Choose codec: libx264 (faster) or libx265 (smaller)
+5. Set quality: 18 (visually lossless) to 28 (smaller file)
 
 💾 Storage:
-- Format: PyTorch .pt files (fast I/O, FP32 precision)
+- Format: MP4 with H.264/H.265
 - Location: output_dir/tlbvfi_chunks/session_id/
-- Manifest: JSON metadata for resumable processing
-- Cleanup: Chunks auto-deleted after VideoConcatenator
+- Size: ~50-100MB per chunk (9 frames @ 4K, CRF 18)
+- Concat: FFmpeg concat demuxer (no re-encoding)
 
-📊 Disk space: ~1.5GB per chunk (15 frames @ 4K)
+⚙️ Settings:
+- codec=libx264: Faster encoding, good compatibility
+- codec=libx265: Better compression, smaller files
+- quality=18: Visually lossless (recommended)
+- quality=23: Good balance
+- quality=28: Smaller files, slight quality loss
+
+📊 Disk usage (1800 chunks @ 4K):
+- H.264 CRF18: 90-180 GB
+- H.265 CRF23: 54-90 GB
     """
 
-    def save_chunk(self, frames: torch.Tensor, chunk_id: int, session_id: str = "",
-                   output_dir: str = ""):
+    def save_chunk(self, frames: torch.Tensor, chunk_id: int, fps: int = 30,
+                   session_id: str = "", output_dir: str = "",
+                   codec: str = "libx264", quality: int = 18):
         """
-        Save frames to disk as a chunk file.
+        Save frames as video-encoded chunk.
 
         Args:
             frames: (N, H, W, C) tensor from TLBVFI_Interpolator
             chunk_id: Sequential chunk number
+            fps: Frame rate for video
             session_id: Unique session identifier (auto-generated if empty)
             output_dir: Output directory (use default if empty)
+            codec: libx264 or libx265
+            quality: CRF value (0-51, lower = better)
 
         Returns:
             session_id: Echo back for workflow tracking
             chunk_path: Absolute path to saved chunk
             num_frames: Number of frames in chunk
+            file_size_mb: File size in MB
         """
         # Generate session_id if not provided
         if not session_id:
@@ -105,42 +156,86 @@ Save interpolated frames to disk as chunks with manifest tracking.
         session_dir = os.path.join(output_dir, "tlbvfi_chunks", session_id)
         os.makedirs(session_dir, exist_ok=True)
 
-        # Save chunk as .pt file (preserves FP32 precision, fast I/O)
-        chunk_filename = f"chunk_{chunk_id:06d}.pt"
+        # Save chunk as video file
+        chunk_filename = f"chunk_{chunk_id:06d}.mp4"
         chunk_path = os.path.join(session_dir, chunk_filename)
 
-        # Convert to CPU if needed
+        # Convert tensor to numpy (uint8)
         frames_cpu = frames.cpu() if frames.device.type != 'cpu' else frames
+        frames_np = (frames_cpu.numpy() * 255).clip(0, 255).astype(np.uint8)
 
-        # Save with metadata
-        chunk_data = {
-            'frames': frames_cpu,
-            'chunk_id': chunk_id,
-            'shape': frames_cpu.shape,
-            'dtype': str(frames_cpu.dtype),
-        }
+        num_frames, H, W, C = frames_np.shape
 
-        # Atomic write: write to temp file then rename
-        temp_path = f"{chunk_path}.tmp"
-        torch.save(chunk_data, temp_path)
-        os.replace(temp_path, chunk_path)
+        # Find FFmpeg
+        ffmpeg_path = find_ffmpeg()
+
+        # FFmpeg command for video encoding
+        # Key settings for concat compatibility:
+        # - yuv420p: Standard pixel format
+        # - GOP size = chunk size: Each chunk starts with keyframe
+        # - Same codec/quality across all chunks
+        cmd = [
+            ffmpeg_path,
+            '-y',  # Overwrite output file
+            '-f', 'rawvideo',
+            '-vcodec', 'rawvideo',
+            '-s', f'{W}x{H}',
+            '-pix_fmt', 'rgb24',
+            '-r', str(fps),
+            '-i', '-',  # Read from stdin
+            '-an',  # No audio
+            '-vcodec', codec,
+            '-crf', str(quality),
+            '-pix_fmt', 'yuv420p',  # Standard format for compatibility
+            '-g', str(num_frames),  # GOP size = chunk size (keyframe at start)
+            '-preset', 'medium',  # Encoding speed/quality trade-off
+            '-movflags', '+faststart',  # Optimize for streaming
+            chunk_path
+        ]
+
+        # Run FFmpeg
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            # Write frames to FFmpeg stdin
+            stdout, stderr = process.communicate(input=frames_np.tobytes())
+
+            if process.returncode != 0:
+                raise RuntimeError(
+                    f"FFmpeg encoding failed:\n{stderr.decode('utf-8', errors='ignore')}"
+                )
+
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"FFmpeg not found. Please install FFmpeg:\n"
+                f"  Ubuntu/Debian: sudo apt-get install ffmpeg\n"
+                f"  macOS: brew install ffmpeg\n"
+                f"  Windows: Download from https://ffmpeg.org/"
+            )
+
+        # Get file size
+        file_size_bytes = os.path.getsize(chunk_path)
+        file_size_mb = file_size_bytes / (1024**2)
 
         # Update manifest
         add_chunk_to_manifest(
             session_dir=session_dir,
             chunk_id=chunk_id,
             chunk_path=chunk_path,
-            shape=frames_cpu.shape,
+            shape=frames_np.shape,
             status='complete'
         )
 
-        num_frames = frames_cpu.shape[0]
-        chunk_size_mb = os.path.getsize(chunk_path) / (1024**2)
-        H, W = frames_cpu.shape[1:3]
-
         print(
             f"ChunkVideoSaver: Saved chunk {chunk_id} → {chunk_path}\n"
-            f"  {num_frames} frames @ {H}×{W}, {chunk_size_mb:.1f}MB"
+            f"  {num_frames} frames @ {H}×{W}, {fps} fps\n"
+            f"  Codec: {codec}, CRF: {quality}\n"
+            f"  Size: {file_size_mb:.1f}MB"
         )
 
-        return (session_id, chunk_path, num_frames)
+        return (session_id, chunk_path, num_frames, f"{file_size_mb:.1f}MB")
