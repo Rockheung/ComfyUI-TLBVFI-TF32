@@ -268,14 +268,119 @@ ComfyUI/output/tlbvfi_chunks/
 - Linear scaling with video length
 
 **Disk space** (temporary):
-- Per chunk: ~1.5 GB (15 frames @ 4K)
-- 1000 chunks: ~1.5 TB
+- Raw .pt storage:
+  - Per chunk: ~1.5 GB (9 frames @ 4K)
+  - 1000 chunks: ~1.5 TB
+- Video-encoded storage (V2 - RECOMMENDED):
+  - Per chunk: ~50-100 MB (9 frames @ 4K, H.264 CRF18)
+  - 1000 chunks: ~50-100 GB (10-30x smaller!)
 - Cleaned up after concatenation
 
 **Recommendations:**
 - Use **NVMe SSD** for chunk storage (minimal overhead)
 - Keep **2x video size** free disk space for safety
 - For 8K videos, use `times_to_interpolate ≤ 2`
+
+### Video-Encoded Chunks (V2 - RECOMMENDED)
+
+**NEW in v0.2.1**: Save disk space with video-encoded chunks!
+
+The V2 nodes use FFmpeg to encode chunks as H.264/H.265 video files instead of raw PyTorch tensors, providing **10-50x disk space savings** while maintaining lossless concat compatibility.
+
+#### Why Use V2 (Video-Encoded)?
+
+| Feature | V1 (Raw .pt) | V2 (Video-Encoded) |
+|---------|--------------|-------------------|
+| Disk per chunk (4K, 9 frames) | **1.5 GB** | **50-100 MB** ✅ |
+| 1000 chunks total | **1.5 TB** | **50-100 GB** ✅ |
+| Concat speed | Fast (load tensors) | **Fastest** (no re-encode) ✅ |
+| Quality | Lossless | **Visually lossless** (CRF 18-23) ✅ |
+| Each chunk playable | ❌ No | ✅ **Yes** |
+| Requires FFmpeg | ❌ No | ✅ Yes (usually pre-installed) |
+
+#### V2 Workflow
+
+Use these nodes instead of the V1 counterparts:
+
+```
+VHS LoadVideo → FramePairSlicer → TLBVFI Interpolator → ChunkVideoSaverV2
+                                                                 ↓
+                                                      VideoConcatenatorV2 → Final Video
+```
+
+**Changes from V1:**
+
+1. **ChunkVideoSaverV2** (replaces ChunkVideoSaver):
+   - Additional parameters:
+     - `fps`: Frame rate for video (match source video)
+     - `codec`: `libx264` (H.264, faster) or `libx265` (H.265, smaller)
+     - `quality`: CRF value (18=visually lossless, 23=good balance, 28=smaller)
+   - Encodes chunks as MP4 video files
+   - Output: ~50-100MB per chunk @ 4K (vs 1.5GB raw)
+
+2. **VideoConcatenatorV2** (replaces VideoConcatenator):
+   - Uses FFmpeg concat demuxer (no re-encoding!)
+   - Additional parameters:
+     - `output_filename`: Custom filename (auto-generated if empty)
+     - `return_frames`: Load video into memory (default: False)
+   - Fast, lossless merge of video chunks
+   - Output: Final MP4 video file
+
+#### Video Codec Recommendations
+
+**H.264 (libx264):**
+- ✅ Faster encoding (~10-20% faster than H.265)
+- ✅ Universal compatibility (plays everywhere)
+- ✅ Good compression (~50-100MB per chunk @ 4K, CRF 18)
+- 🎯 **Recommended for most users**
+
+**H.265 (libx265):**
+- ✅ Better compression (~30-50MB per chunk @ 4K, CRF 23)
+- ✅ 30-50% smaller files than H.264
+- ⚠️ Slower encoding (~15-30% slower than H.264)
+- ⚠️ Requires modern hardware decoders for playback
+
+#### Quality Settings (CRF)
+
+| CRF Value | Quality | File Size | Use Case |
+|-----------|---------|-----------|----------|
+| 0-17 | Lossless/Near-lossless | Very large | Archival, professional work |
+| **18** | **Visually lossless** | **Large** | **Recommended default** |
+| 23 | High quality | Medium | Good balance |
+| 28 | Good quality | Small | Smaller files, slight loss |
+| 35+ | Lower quality | Very small | Not recommended |
+
+**Recommendation:** Use CRF 18 for H.264 or CRF 23 for H.265 for best quality/size trade-off.
+
+#### Example Disk Savings
+
+**Scenario:** 4K video, 10 minutes, 30fps, 7x interpolation = 1800 chunks
+
+| Storage Method | Per Chunk | Total | Savings |
+|----------------|-----------|-------|---------|
+| Raw .pt (V1) | 1.5 GB | **2.7 TB** | - |
+| H.264 CRF18 (V2) | 75 MB | **135 GB** | **20x smaller** ✅ |
+| H.265 CRF23 (V2) | 50 MB | **90 GB** | **30x smaller** ✅ |
+
+#### FFmpeg Installation
+
+Most systems have FFmpeg pre-installed. If not:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Windows
+# Download from https://ffmpeg.org/download.html
+```
+
+Verify installation:
+```bash
+ffmpeg -version
+```
 
 ---
 
@@ -567,6 +672,18 @@ This project follows the same license as the original TLB-VFI model. Please refe
 ---
 
 ## 🔄 Changelog
+
+### v0.2.1 - Video-Encoded Chunks (Disk Space Optimization)
+- 💾 **NEW: Video-encoded chunk storage** using FFmpeg H.264/H.265
+- 🎥 **ChunkVideoSaverV2**: Encode chunks as MP4 files (50-100MB vs 1.5GB)
+- 🔗 **VideoConcatenatorV2**: FFmpeg concat demuxer for lossless merge
+- 📊 **Massive disk savings**: 10-50x smaller chunks (2.7TB → 90-135GB for 10min 4K)
+- 🎬 **Each chunk playable**: Can preview/verify chunks before concatenation
+- ⚡ **No re-encoding**: Concat demuxer is lossless and fast
+- 🎯 **Configurable quality**: CRF 18-28, H.264/H.265 codec selection
+- 📐 **GOP-aligned keyframes**: Each chunk starts with keyframe for concat compatibility
+- ✅ **Backward compatible**: V1 (raw .pt) nodes still available
+- 📚 **Comprehensive docs**: V2 workflow guide and codec recommendations
 
 ### v0.2.0 - Chunk-Based Architecture (Major Feature Release)
 - 🎬 **NEW: Chunk-based workflow** for unlimited video length processing
