@@ -74,6 +74,28 @@ class TLBVFI_Interpolator:
     FUNCTION = "interpolate"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
 
+    DESCRIPTION = """
+TLBVFI frame interpolator optimized for chunk-based processing.
+
+📌 Purpose:
+- Interpolates between 2 frames using latent diffusion
+- Supports model reuse to avoid reload overhead
+- Core processing node in chunk-based workflow
+
+🎯 Usage:
+1. Connect frame_pair (2 frames) from FramePairSlicer
+2. Select model (vimeo_unet.pth)
+3. Set times_to_interpolate (1=2x, 2=4x, 3=8x, 4=16x)
+4. Connect shared_model output back to its own input for model reuse
+
+⚡ Features:
+- TF32 acceleration on RTX 30/40 series
+- Automatic GPU memory management
+- Model stays in VRAM across chunks
+
+💾 Memory: ~13GB GPU for 4K video
+    """
+
     def interpolate(self, frame_pair: torch.Tensor, model_name: str, times_to_interpolate: int,
                    gpu_id: int, shared_model=None):
         """

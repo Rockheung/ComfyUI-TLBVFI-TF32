@@ -50,6 +50,33 @@ class VideoConcatenator:
     FUNCTION = "concatenate"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
 
+    DESCRIPTION = """
+Load and concatenate all saved chunks into final video.
+
+📌 Purpose:
+- Assembles all chunks into complete interpolated video
+- Final step in chunk-based workflow
+- Validates chunk consistency and handles overlaps
+
+🎯 Usage:
+1. Enter session_id from ChunkVideoSaver
+2. Set cleanup_chunks=True to auto-delete chunks after merge
+3. Output: Complete video tensor ready for VHS SaveVideo
+
+⚙️ Features:
+- Automatic chunk ordering via manifest
+- Handles overlapping frames (skips duplicates)
+- Shape validation prevents concatenation errors
+- Detailed error messages for debugging
+
+💾 Memory: Peak = total frames in final video
+- 1 min 1080p: ~3GB
+- 10 min 4K: ~26GB (still much better than 13TB!)
+
+⚠️ Note: For very long videos (1+ hour 4K), consider saving
+intermediate segments instead of loading all at once.
+    """
+
     def concatenate(self, session_id: str, output_dir: str = "", cleanup_chunks: bool = True):
         """
         Load and concatenate all chunks into final video.

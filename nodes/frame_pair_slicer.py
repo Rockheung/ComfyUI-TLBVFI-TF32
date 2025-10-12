@@ -37,6 +37,22 @@ class FramePairSlicer:
     FUNCTION = "slice_pair"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
 
+    DESCRIPTION = """
+Extract consecutive frame pairs from video for chunk-based processing.
+
+📌 Purpose:
+- Breaks down video into frame pairs (frame_i, frame_i+1)
+- Enables memory-efficient processing of long videos
+- First step in chunk-based workflow
+
+🎯 Usage:
+1. Connect IMAGE tensor from VHS LoadVideo
+2. Set pair_index (0, 1, 2, ...) to select which pair to extract
+3. Process one pair at a time to avoid memory issues
+
+💾 Memory: Only 2 frames in memory (~200MB for 4K)
+    """
+
     def slice_pair(self, images: torch.Tensor, pair_index: int):
         """
         Extract a frame pair for interpolation.

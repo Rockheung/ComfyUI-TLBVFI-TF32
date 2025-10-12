@@ -54,6 +54,29 @@ class ChunkVideoSaver:
     FUNCTION = "save_chunk"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
 
+    DESCRIPTION = """
+Save interpolated frames to disk as chunks with manifest tracking.
+
+📌 Purpose:
+- Immediately persists frames to disk, freeing memory
+- Tracks chunks in JSON manifest for later concatenation
+- Enables processing unlimited video length
+
+🎯 Usage:
+1. Connect interpolated_frames from TLBVFI_Interpolator
+2. Set chunk_id (0, 1, 2, ...) - increment for each chunk
+3. Leave session_id empty for auto-generation (first chunk)
+4. Use same session_id for all chunks in same video
+
+💾 Storage:
+- Format: PyTorch .pt files (fast I/O, FP32 precision)
+- Location: output_dir/tlbvfi_chunks/session_id/
+- Manifest: JSON metadata for resumable processing
+- Cleanup: Chunks auto-deleted after VideoConcatenator
+
+📊 Disk space: ~1.5GB per chunk (15 frames @ 4K)
+    """
+
     def save_chunk(self, frames: torch.Tensor, chunk_id: int, session_id: str = "",
                    output_dir: str = ""):
         """
