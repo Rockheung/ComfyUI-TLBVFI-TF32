@@ -247,6 +247,14 @@ This project follows the same license as the original TLB-VFI model. Please refe
 
 ## 🔄 Changelog
 
+### v0.1.4 (v2.0.2) - Performance Optimization
+- ⚡ **Speed optimization** - reduced overhead from 27% to ~12-15%
+- 🔄 **Periodic cache clearing** (every 10 segments vs every segment)
+- 🚀 **Non-blocking CPU transfers** for async GPU→CPU data movement
+- 📈 **Performance recovery** - 1.53 it/s → ~1.75-1.85 it/s expected
+- 🛡️ **OOM safety maintained** - still 13.5GB peak memory usage
+- ⚖️ **Better trade-off** - speed sacrifice halved while keeping stability
+
 ### v0.1.3 (v2.0.1) - Memory Optimization
 - 🔥 **Fixed OOM errors** when `times_to_interpolate >= 2`
 - 💾 **Streaming output** eliminates 9.43GB pre-allocated GPU buffer
