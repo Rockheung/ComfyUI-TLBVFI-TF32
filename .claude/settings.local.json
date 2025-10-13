@@ -6,7 +6,10 @@
       "Bash(git push:*)",
       "Bash(python3:*)",
       "WebFetch(domain:stackoverflow.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "mcp__codex__codex",
+      "mcp__codex__codex-reply",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []

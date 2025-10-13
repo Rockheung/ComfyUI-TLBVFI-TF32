@@ -83,10 +83,26 @@ def load_tlbvfi_model(model_name: str, device: torch.device):
     # Load weights
     checkpoint = torch.load(model_path, map_location=device)
     state_dict_to_load = checkpoint.get('model', checkpoint)
-    model.load_state_dict(state_dict_to_load)
+
+    # Load state dict with strict=False to see if there are missing/unexpected keys
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict_to_load, strict=False)
+
+    if missing_keys:
+        print(f"⚠️  TLBVFI WARNING: Missing keys in state_dict:")
+        for key in missing_keys:
+            print(f"    - {key}")
+
+    if unexpected_keys:
+        print(f"⚠️  TLBVFI WARNING: Unexpected keys in state_dict:")
+        for key in unexpected_keys:
+            print(f"    - {key}")
+
     model.eval()
 
     print(f"TLBVFI: Loaded model {model_name} on {device}")
+    print(f"  Model has {sum(p.numel() for p in model.parameters())} parameters")
+    print(f"  VQGAN encoder: {sum(p.numel() for p in model.vqgan.encoder.parameters())} parameters")
+    print(f"  VQGAN decoder: {sum(p.numel() for p in model.vqgan.decoder.parameters())} parameters")
 
     return model
 
