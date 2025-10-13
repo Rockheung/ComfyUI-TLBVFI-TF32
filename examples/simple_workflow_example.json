@@ -1,0 +1,193 @@
+{
+  "last_node_id": 3,
+  "last_link_id": 2,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "VHS_LoadVideo",
+      "pos": [50, 50],
+      "size": [315, 290],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [1],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": null,
+          "shape": 3
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": null,
+          "shape": 3
+        },
+        {
+          "name": "video_info",
+          "type": "VHS_VIDEOINFO",
+          "links": null,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VHS_LoadVideo"
+      },
+      "widgets_values": {
+        "video": "your_video.mp4",
+        "force_rate": 0,
+        "force_size": "Disabled",
+        "custom_width": 512,
+        "custom_height": 512,
+        "frame_load_cap": 0,
+        "skip_first_frames": 0,
+        "select_every_nth": 1
+      }
+    },
+    {
+      "id": 2,
+      "type": "TLBVFI_ChunkProcessor",
+      "pos": [450, 50],
+      "size": [340, 262],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "session_id",
+          "type": "STRING",
+          "links": [2],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TLBVFI_ChunkProcessor"
+      },
+      "widgets_values": {
+        "model_name": "vimeo_unet.pth",
+        "times_to_interpolate": 3,
+        "fps": 30.0,
+        "codec": "h264_nvenc",
+        "crf": 18,
+        "gpu_id": 0,
+        "session_id": "",
+        "save_debug_images": false
+      }
+    },
+    {
+      "id": 3,
+      "type": "TLBVFI_VideoConcatenator",
+      "pos": [850, 50],
+      "size": [315, 150],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "session_id",
+          "type": "STRING",
+          "link": 2
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "TLBVFI_VideoConcatenator"
+      },
+      "widgets_values": {
+        "session_id": "",
+        "output_dir": "",
+        "output_filename": "",
+        "cleanup_chunks": true,
+        "return_frames": false
+      }
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "IMAGE"],
+    [2, 2, 0, 3, 0, "STRING"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 1,
+      "offset": [0, 0]
+    }
+  },
+  "version": 0.4,
+  "workflow_info": {
+    "name": "TLBVFI Simple All-in-One Workflow",
+    "description": "Simplest workflow using TLBVFI_ChunkProcessor - automatically processes all frame pairs",
+    "author": "ComfyUI-TLBVFI-TF32",
+    "nodes_used": [
+      "VHS_LoadVideo",
+      "TLBVFI_ChunkProcessor",
+      "TLBVFI_VideoConcatenator"
+    ],
+    "workflow_steps": [
+      "1. Load video using VHS_LoadVideo",
+      "2. Process ALL frame pairs automatically using ChunkProcessor (8x interpolation with times_to_interpolate=3)",
+      "3. Concatenate all chunks into final video using VideoConcatenator"
+    ],
+    "features": [
+      "✅ No loop nodes required - ChunkProcessor handles iteration automatically",
+      "✅ Memory efficient - processes one pair at a time",
+      "✅ Model loaded once and reused for all pairs",
+      "✅ Progress bar with ETA",
+      "✅ Progressive disk saving (video chunks)",
+      "✅ Final video merged without re-encoding"
+    ],
+    "notes": [
+      "This is the RECOMMENDED workflow for most users",
+      "ChunkProcessor automatically processes all frame pairs from start to finish",
+      "No manual loop management needed",
+      "Model stays in VRAM for maximum efficiency",
+      "Each chunk is saved as H.264/H.265 video progressively",
+      "Final concatenation is lossless (no re-encoding)"
+    ],
+    "parameters": {
+      "times_to_interpolate": {
+        "description": "Interpolation multiplier",
+        "values": {
+          "1": "2x frames (double framerate)",
+          "2": "4x frames",
+          "3": "8x frames (recommended)",
+          "4": "16x frames"
+        }
+      },
+      "codec": {
+        "description": "Video encoding codec",
+        "recommended": "h264_nvenc (NVIDIA GPU acceleration)",
+        "alternatives": [
+          "hevc_nvenc (H.265, better compression)",
+          "libx264 (CPU, more compatible)",
+          "libx265 (CPU H.265)"
+        ]
+      },
+      "crf": {
+        "description": "Quality setting (lower = better)",
+        "recommended": "18 (visually lossless)",
+        "values": {
+          "18": "Visually lossless quality",
+          "23": "Good balance (default for many uses)",
+          "28": "Smaller files, slight quality loss"
+        }
+      }
+    }
+  }
+}

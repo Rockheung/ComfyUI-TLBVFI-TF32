@@ -222,16 +222,20 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
 
         # Process all pairs
         ffmpeg_path = find_ffmpeg()
-        manifest = {'chunks': [], 'metadata': {
+        manifest = {
             'session_id': session_id,
-            'total_input_frames': N,
-            'total_pairs': total_pairs,
-            'times_to_interpolate': times_to_interpolate,
-            'fps': fps,
-            'codec': codec,
-            'crf': crf,
-            'resolution': f"{H}x{W}",
-        }}
+            'created_at': datetime.now().isoformat(),
+            'chunks': [],
+            'metadata': {
+                'total_input_frames': N,
+                'total_pairs': total_pairs,
+                'times_to_interpolate': times_to_interpolate,
+                'fps': fps,
+                'codec': codec,
+                'crf': crf,
+                'resolution': f"{H}x{W}",
+            }
+        }
 
         for pair_idx in tqdm(range(total_pairs), desc="Processing frame pairs"):
             is_last_pair = (pair_idx == total_pairs - 1)
