@@ -275,7 +275,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                   f"({2**times_to_interpolate}x frames)")
             result = self._interpolate_recursive(
                 prev_tensor, next_tensor, model, times_to_interpolate,
-                flow_scale, cpu_offload
+                flow_scale, cpu_offload, device
             )
 
         # Postprocessing: unpad
@@ -429,7 +429,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         return mid_frame
 
     def _interpolate_recursive(self, prev_tensor, next_tensor, model,
-                              times_to_interpolate, flow_scale, cpu_offload):
+                              times_to_interpolate, flow_scale, cpu_offload, device):
         """
         Recursive bisection with aggressive memory management.
 
@@ -448,6 +448,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             times_to_interpolate: 1=2x, 2=4x, 3=8x, 4=16x
             flow_scale: Flow computation scale
             cpu_offload: Immediate GPU→CPU transfer
+            device: torch.device (GPU/CPU)
 
         Returns:
             frames: (N, H, W, C) in [0, 1], N = 2^times_to_interpolate + 1
@@ -483,8 +484,8 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
                 # Move to GPU and match model dtype FIRST
                 model_dtype = next(iter(model.parameters())).dtype
-                frame_a = frame_a.to(device=model.device, dtype=model_dtype)
-                frame_b = frame_b.to(device=model.device, dtype=model_dtype)
+                frame_a = frame_a.to(device=device, dtype=model_dtype)
+                frame_b = frame_b.to(device=device, dtype=model_dtype)
 
                 # Normalize AFTER dtype conversion to ensure consistency
                 frame_a = (frame_a * 2.0) - 1.0
