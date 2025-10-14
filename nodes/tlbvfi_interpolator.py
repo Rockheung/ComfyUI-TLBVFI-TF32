@@ -35,7 +35,22 @@ except ImportError:
 import folder_paths
 
 # Global model cache to avoid reloading across workflow iterations
+# This is a common pattern in ComfyUI custom nodes for non-SD models
+# The cache persists across workflow executions but respects ComfyUI's lifecycle
 _MODEL_CACHE = {}
+
+
+def clear_model_cache():
+    """Clear the model cache and free GPU memory."""
+    global _MODEL_CACHE
+    import gc
+    for key in list(_MODEL_CACHE.keys()):
+        del _MODEL_CACHE[key]
+    _MODEL_CACHE.clear()
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print("TLBVFI: Model cache cleared")
 
 
 def find_models(folder_type: str, extensions: list) -> list:
@@ -158,6 +173,14 @@ TLBVFI frame interpolator optimized for chunk-based processing.
         else:
             print(f"TLBVFI_Interpolator: Loading model {model_name}")
             print_memory_summary(device, "Before model load: ")
+
+            # Check if we need to clear old models due to memory pressure
+            if device.type == 'cuda':
+                mem_stats = get_memory_stats(device)
+                # If available memory is less than 4GB, clear cache
+                if mem_stats['free'] < 4.0:
+                    print(f"TLBVFI_Interpolator: Low memory ({mem_stats['free']:.1f}GB free), clearing cache")
+                    clear_model_cache()
 
             model = load_tlbvfi_model(model_name, device)
 

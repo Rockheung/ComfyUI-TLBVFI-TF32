@@ -8,6 +8,7 @@ from .nodes import (
     ChunkVideoSaver,
     VideoConcatenator,
     TLBVFI_ChunkProcessor,
+    TLBVFI_ClearModelCache,
 )
 
 NODE_CLASS_MAPPINGS = {
@@ -20,6 +21,7 @@ NODE_CLASS_MAPPINGS = {
     "TLBVFI_ChunkVideoSaver": ChunkVideoSaver,
     "TLBVFI_VideoConcatenator": VideoConcatenator,
     "TLBVFI_ChunkProcessor": TLBVFI_ChunkProcessor,
+    "TLBVFI_ClearModelCache": TLBVFI_ClearModelCache,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -32,6 +34,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "TLBVFI_ChunkVideoSaver": "TLBVFI Chunk Video Saver",
     "TLBVFI_VideoConcatenator": "TLBVFI Video Concatenator",
     "TLBVFI_ChunkProcessor": "TLBVFI Chunk Processor (All-in-One)",
+    "TLBVFI_ClearModelCache": "TLBVFI Clear Model Cache",
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
