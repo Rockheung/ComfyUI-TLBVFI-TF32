@@ -1,0 +1,398 @@
+{
+  "last_node_id": 15,
+  "last_link_id": 22,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "VHS_LoadVideo",
+      "pos": [50, 50],
+      "size": [315, 290],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [1],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VHS_LoadVideo"
+      },
+      "widgets_values": {
+        "video": ""
+      }
+    },
+    {
+      "id": 2,
+      "type": "TLBVFI_FramePairSlicer",
+      "pos": [400, 50],
+      "size": [315, 150],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "frame_pair",
+          "type": "IMAGE",
+          "links": [2, 3, 4, 5],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TLBVFI_FramePairSlicer"
+      },
+      "widgets_values": {
+        "pair_index": 0
+      }
+    },
+    {
+      "id": 3,
+      "type": "GetNode",
+      "pos": [750, 50],
+      "size": [210, 58],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "frame_pair",
+          "type": "IMAGE",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [6, 8, 10],
+          "slot_index": 0
+        }
+      ],
+      "title": "Prev Frame"
+    },
+    {
+      "id": 4,
+      "type": "GetNode",
+      "pos": [750, 150],
+      "size": [210, 58],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "frame_pair",
+          "type": "IMAGE",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [7, 9, 11],
+          "slot_index": 0
+        }
+      ],
+      "title": "Next Frame"
+    },
+    {
+      "id": 5,
+      "type": "TLBVFI_Interpolator_V2",
+      "pos": [1000, 50],
+      "size": [350, 450],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prev_frame",
+          "type": "IMAGE",
+          "link": 6
+        },
+        {
+          "name": "next_frame",
+          "type": "IMAGE",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "interpolated_frames",
+          "type": "IMAGE",
+          "links": [12],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TLBVFI_Interpolator_V2"
+      },
+      "widgets_values": {
+        "model_name": "vimeo_unet.pth",
+        "times_to_interpolate": 1,
+        "use_fp16": true,
+        "enable_tf32": true,
+        "sample_steps": 10,
+        "flow_scale": 0.5,
+        "cpu_offload": true,
+        "gpu_id": 0
+      },
+      "title": "Fast Mode (10 steps, flow 0.5)"
+    },
+    {
+      "id": 6,
+      "type": "TLBVFI_Interpolator_V2",
+      "pos": [1400, 50],
+      "size": [350, 450],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prev_frame",
+          "type": "IMAGE",
+          "link": 8
+        },
+        {
+          "name": "next_frame",
+          "type": "IMAGE",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "interpolated_frames",
+          "type": "IMAGE",
+          "links": [13],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TLBVFI_Interpolator_V2"
+      },
+      "widgets_values": {
+        "model_name": "vimeo_unet.pth",
+        "times_to_interpolate": 1,
+        "use_fp16": true,
+        "enable_tf32": true,
+        "sample_steps": 20,
+        "flow_scale": 0.5,
+        "cpu_offload": true,
+        "gpu_id": 0
+      },
+      "title": "Balanced Mode (20 steps)"
+    },
+    {
+      "id": 7,
+      "type": "TLBVFI_Interpolator_V2",
+      "pos": [1800, 50],
+      "size": [350, 450],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prev_frame",
+          "type": "IMAGE",
+          "link": 10
+        },
+        {
+          "name": "next_frame",
+          "type": "IMAGE",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "interpolated_frames",
+          "type": "IMAGE",
+          "links": [14],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TLBVFI_Interpolator_V2"
+      },
+      "widgets_values": {
+        "model_name": "vimeo_unet.pth",
+        "times_to_interpolate": 1,
+        "use_fp16": true,
+        "enable_tf32": true,
+        "sample_steps": 50,
+        "flow_scale": 1.0,
+        "cpu_offload": true,
+        "gpu_id": 0
+      },
+      "title": "Quality Mode (50 steps, flow 1.0)"
+    },
+    {
+      "id": 8,
+      "type": "PreviewImage",
+      "pos": [1000, 550],
+      "size": [350, 350],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 12
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "title": "Fast Result"
+    },
+    {
+      "id": 9,
+      "type": "PreviewImage",
+      "pos": [1400, 550],
+      "size": [350, 350],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 13
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "title": "Balanced Result"
+    },
+    {
+      "id": 10,
+      "type": "PreviewImage",
+      "pos": [1800, 550],
+      "size": [350, 350],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 14
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "title": "Quality Result"
+    },
+    {
+      "id": 11,
+      "type": "ImageCompare",
+      "pos": [2200, 50],
+      "size": [400, 300],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image_a",
+          "type": "IMAGE",
+          "link": 12
+        },
+        {
+          "name": "image_b",
+          "type": "IMAGE",
+          "link": 13
+        },
+        {
+          "name": "image_c",
+          "type": "IMAGE",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [15]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageCompare"
+      },
+      "widgets_values": {
+        "mode": "side_by_side"
+      }
+    },
+    {
+      "id": 12,
+      "type": "SaveImage",
+      "pos": [2200, 400],
+      "size": [400, 290],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 15
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": {
+        "filename_prefix": "TLBVFI_V2_Comparison"
+      }
+    },
+    {
+      "id": 13,
+      "type": "Note",
+      "pos": [50, 400],
+      "size": [650, 250],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "properties": {
+        "text": ""
+      },
+      "widgets_values": {
+        "text": "TLBVFI V2 Quality Comparison Workflow\n\nCompare three quality settings side-by-side:\n\n1. Fast Mode:\n   - sample_steps: 10 (paper default)\n   - flow_scale: 0.5 (fast decode)\n   - Speed: ~8s per pair (RTX 3090, 4K)\n\n2. Balanced Mode:\n   - sample_steps: 20\n   - flow_scale: 0.5\n   - Speed: ~16s per pair\n   - Quality: Noticeable improvement\n\n3. Quality Mode:\n   - sample_steps: 50\n   - flow_scale: 1.0 (full resolution flow)\n   - Speed: ~40s per pair\n   - Quality: Best results\n\nUse ImageCompare to see differences.\nAll modes use FP16 + TF32 for consistency."
+      },
+      "bgcolor": "#233",
+      "color": "#355"
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "IMAGE"],
+    [2, 2, 0, 3, 0, "IMAGE"],
+    [3, 2, 0, 4, 0, "IMAGE"],
+    [6, 3, 0, 5, 0, "IMAGE"],
+    [7, 4, 0, 5, 1, "IMAGE"],
+    [8, 3, 0, 6, 0, "IMAGE"],
+    [9, 4, 0, 6, 1, "IMAGE"],
+    [10, 3, 0, 7, 0, "IMAGE"],
+    [11, 4, 0, 7, 1, "IMAGE"],
+    [12, 5, 0, 8, 0, "IMAGE"],
+    [12, 5, 0, 11, 0, "IMAGE"],
+    [13, 6, 0, 9, 0, "IMAGE"],
+    [13, 6, 0, 11, 1, "IMAGE"],
+    [14, 7, 0, 10, 0, "IMAGE"],
+    [14, 7, 0, 11, 2, "IMAGE"],
+    [15, 11, 0, 12, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}
