@@ -253,6 +253,16 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         # Load model with caching
         cache_key = f"{model_name}_{gpu_id}_{use_fp16}_{sample_steps}"
+
+        # Clear cache if precision changed (FP16 ↔ FP32 switch)
+        # This prevents using cached FP32 model when FP16 is requested
+        stale_keys = [k for k in _MODEL_CACHE.keys() if k.startswith(f"{model_name}_{gpu_id}_")]
+        for k in stale_keys:
+            if k != cache_key:
+                print(f"TLBVFI_V2: Clearing stale cache entry: {k}")
+                del _MODEL_CACHE[k]
+                soft_empty_cache()
+
         model = self._get_or_load_model(
             cache_key, model_name, device, use_fp16, sample_steps
         )
