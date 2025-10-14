@@ -170,7 +170,7 @@ VHS LoadVideo → FramePairSlicer → TLBVFI Interpolator → ChunkVideoSaver
    - Connect `frame_pair` from slicer
    - Select `model_name` (vimeo_unet.pth)
    - Set `times_to_interpolate` (1-4)
-   - Connect `shared_model` to itself for model reuse *(loop connection)*
+   - Model is automatically cached for reuse across workflow executions
    - Output: Interpolated frames `(N, H, W, C)`
 
 4. **Save Chunk**: Add `TLBVFI Chunk Saver`

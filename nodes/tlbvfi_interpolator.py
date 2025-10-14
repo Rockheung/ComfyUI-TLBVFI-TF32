@@ -34,6 +34,9 @@ except ImportError:
 
 import folder_paths
 
+# Global model cache to avoid reloading across workflow iterations
+_MODEL_CACHE = {}
+
 
 def find_models(folder_type: str, extensions: list) -> list:
     """Find all model files with given extensions in the specified folder type."""
@@ -75,14 +78,13 @@ class TLBVFI_Interpolator:
                 "gpu_id": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
             },
             "optional": {
-                "shared_model": ("TLBVFI_MODEL",),  # For model reuse across chunks
                 "is_last_pair": ("BOOLEAN", {"default": False}),  # Include end frame for last pair
                 "save_images": ("BOOLEAN", {"default": False}),  # Save frames as PNG for debugging
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "TLBVFI_MODEL")
-    RETURN_NAMES = ("interpolated_frames", "shared_model")
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("interpolated_frames",)
     FUNCTION = "interpolate"
     CATEGORY = "frame_interpolation/TLBVFI-TF32/chunk"
 
@@ -91,21 +93,20 @@ TLBVFI frame interpolator optimized for chunk-based processing.
 
 📌 Purpose:
 - Interpolates between 2 frames using latent diffusion
-- Supports model reuse to avoid reload overhead
+- Automatic model caching for efficient workflow execution
 - Core processing node in chunk-based workflow
 
 🎯 Usage:
 1. Connect frame_pair (2 frames) from FramePairSlicer
 2. Select model (vimeo_unet.pth)
 3. Set times_to_interpolate (1=2x, 2=4x, 3=8x, 4=16x)
-4. Connect shared_model output back to its own input for model reuse
-5. Connect is_last_pair from FramePairSlicer (ensures last frame is included)
-6. [Optional] Set save_images=True to save frames as PNG for debugging
+4. Connect is_last_pair from FramePairSlicer (ensures last frame is included)
+5. [Optional] Set save_images=True to save frames as PNG for debugging
 
 ⚡ Features:
 - TF32 acceleration on RTX 30/40 series
 - Automatic GPU memory management
-- Model stays in VRAM across chunks
+- Global model caching (models persist across workflow executions)
 - Smart frame output: excludes end frame except for last pair
 - Debug mode: save frames as PNG images
 
@@ -120,7 +121,7 @@ TLBVFI frame interpolator optimized for chunk-based processing.
     """
 
     def interpolate(self, frame_pair: torch.Tensor, model_name: str, times_to_interpolate: int,
-                   gpu_id: int, shared_model=None, is_last_pair: bool = False, save_images: bool = False):
+                   gpu_id: int, is_last_pair: bool = False, save_images: bool = False):
         """
         Interpolate between 2 frames.
 
@@ -129,14 +130,13 @@ TLBVFI frame interpolator optimized for chunk-based processing.
             model_name: Model checkpoint name
             times_to_interpolate: 1=2x, 2=4x, 3=8x, 4=16x
             gpu_id: CUDA device ID
-            shared_model: Pre-loaded model for reuse (avoids reload overhead)
             is_last_pair: If True, includes end frame (for last pair of video)
+            save_images: If True, saves frames as PNG for debugging
 
         Returns:
             interpolated_frames: ((2^t) or (2^t + 1), H, W, C) tensor
                 - Normal pairs: 2^t frames (excludes end frame)
                 - Last pair: 2^t + 1 frames (includes end frame)
-            shared_model: Model instance for next chunk
         """
         device = torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
 
@@ -150,8 +150,12 @@ TLBVFI frame interpolator optimized for chunk-based processing.
         H, W = frame_pair.shape[1:3]
         print(f"\nTLBVFI_Interpolator: Processing {H}×{W} frame pair with {times_to_interpolate}x interpolation")
 
-        # Model loading/reuse
-        if shared_model is None:
+        # Model loading with global cache
+        cache_key = f"{model_name}_{gpu_id}"
+        if cache_key in _MODEL_CACHE:
+            model = _MODEL_CACHE[cache_key]
+            print(f"TLBVFI_Interpolator: Reusing cached model {model_name}")
+        else:
             print(f"TLBVFI_Interpolator: Loading model {model_name}")
             print_memory_summary(device, "Before model load: ")
 
@@ -161,10 +165,11 @@ TLBVFI frame interpolator optimized for chunk-based processing.
             enable_tf32_if_available(device)
             enable_cudnn_benchmark(device)
 
+            # Cache the model for future use
+            _MODEL_CACHE[cache_key] = model
+
             print_memory_summary(device, "After model load: ")
-        else:
-            model = shared_model
-            print("TLBVFI_Interpolator: Reusing shared model")
+            print(f"TLBVFI_Interpolator: Model cached for future workflow executions")
 
         # Preprocessing: (2, H, W, C) -> (2, C, H, W), normalize to [-1, 1]
         image_tensors = frame_pair.permute(0, 3, 1, 2).float()
@@ -264,4 +269,4 @@ TLBVFI frame interpolator optimized for chunk-based processing.
             print(f"  (Excluded end frame to avoid duplication in concat)")
         print()
 
-        return (result, model)
+        return (result,)
