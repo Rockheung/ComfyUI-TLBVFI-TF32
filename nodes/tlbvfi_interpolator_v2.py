@@ -371,18 +371,19 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             next_tensor = F.pad(next_tensor, (0, pad_w, 0, pad_h), mode='reflect')
             print(f"  Adaptive padding: {h}x{w} → {h+pad_h}x{w+pad_w}")
 
-        # Normalize to [-1, 1] (original paper normalization)
-        prev_tensor = (prev_tensor * 2.0) - 1.0
-        next_tensor = (next_tensor * 2.0) - 1.0
+        # Move to device first (non-blocking for async transfer)
+        prev_tensor = prev_tensor.to(device, non_blocking=True)
+        next_tensor = next_tensor.to(device, non_blocking=True)
 
-        # Convert to FP16 if requested
+        # Convert to FP16 if requested (BEFORE normalization!)
         if use_fp16:
             prev_tensor = prev_tensor.half()
             next_tensor = next_tensor.half()
 
-        # Move to device (non-blocking for async transfer)
-        prev_tensor = prev_tensor.to(device, non_blocking=True)
-        next_tensor = next_tensor.to(device, non_blocking=True)
+        # Normalize to [-1, 1] (original paper normalization)
+        # Do this AFTER dtype conversion to ensure consistency
+        prev_tensor = (prev_tensor * 2.0) - 1.0
+        next_tensor = (next_tensor * 2.0) - 1.0
 
         # Store padding info for later removal
         pad_info = {
@@ -480,14 +481,14 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 frame_a = frames_list[i].unsqueeze(0).permute(0, 3, 1, 2)  # → (1,C,H,W)
                 frame_b = frames_list[i+1].unsqueeze(0).permute(0, 3, 1, 2)
 
-                # Normalize and move to GPU
-                frame_a = (frame_a * 2.0 - 1.0).to(model.device)
-                frame_b = (frame_b * 2.0 - 1.0).to(model.device)
-
-                # Match model dtype (FP16/FP32)
+                # Move to GPU and match model dtype FIRST
                 model_dtype = next(iter(model.parameters())).dtype
-                frame_a = frame_a.to(dtype=model_dtype)
-                frame_b = frame_b.to(dtype=model_dtype)
+                frame_a = frame_a.to(device=model.device, dtype=model_dtype)
+                frame_b = frame_b.to(device=model.device, dtype=model_dtype)
+
+                # Normalize AFTER dtype conversion to ensure consistency
+                frame_a = (frame_a * 2.0) - 1.0
+                frame_b = (frame_b * 2.0) - 1.0
 
                 # Interpolate
                 with torch.no_grad():
