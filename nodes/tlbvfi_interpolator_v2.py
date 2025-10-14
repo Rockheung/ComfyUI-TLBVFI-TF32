@@ -331,13 +331,17 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         # Convert to FP16 if requested
         if use_fp16 and device.type == 'cuda':
-            # Use convert_to_fp16() instead of half() to properly convert VQGAN submodules
-            if hasattr(model, 'convert_to_fp16'):
-                model.convert_to_fp16()
-                print(f"  Converted to FP16 using convert_to_fp16() (VQGAN-aware)")
-            else:
-                model = model.half()
-                print(f"  Converted to FP16 using half() (fallback)")
+            # TEMPORARY: Disable FP16 for debugging
+            print(f"  WARNING: FP16 disabled for debugging dtype issues")
+            print(f"  Model will run in FP32 mode")
+            use_fp16 = False  # Override
+            # # Use convert_to_fp16() instead of half() to properly convert VQGAN submodules
+            # if hasattr(model, 'convert_to_fp16'):
+            #     model.convert_to_fp16()
+            #     print(f"  Converted to FP16 using convert_to_fp16() (VQGAN-aware)")
+            # else:
+            #     model = model.half()
+            #     print(f"  Converted to FP16 using half() (fallback)")
 
         print_memory_summary(device, "  After load:  ")
 
