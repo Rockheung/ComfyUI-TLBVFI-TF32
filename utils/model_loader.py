@@ -26,13 +26,14 @@ def dict2namespace(config):
     return namespace
 
 
-def load_tlbvfi_model(model_name: str, device: torch.device):
+def load_tlbvfi_model(model_name: str, device: torch.device, sample_steps: int = 10):
     """
     Load TLBVFI model with VQGAN and UNet weights.
 
     Args:
         model_name: Name of model file in interpolation folder
         device: torch.device for model placement
+        sample_steps: Number of diffusion sampling steps (10/20/50)
 
     Returns:
         model: Loaded LatentBrownianBridgeModel in eval mode
@@ -68,6 +69,9 @@ def load_tlbvfi_model(model_name: str, device: torch.device):
         config = yaml.load(f, Loader=yaml.FullLoader)
 
     nconfig = dict2namespace(config)
+
+    # Override sample_steps if provided (for configurable quality/speed)
+    nconfig.model.BB.params.sample_step = sample_steps
 
     # Get model path
     model_path = folder_paths.get_full_path("interpolation", model_name)

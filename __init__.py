@@ -5,6 +5,7 @@ from .tlbvfi_node import TLBVFI_VFI_TF32
 from .nodes import (
     FramePairSlicer,
     TLBVFI_Interpolator,
+    TLBVFI_Interpolator_V2,
     ChunkVideoSaver,
     VideoConcatenator,
     TLBVFI_ChunkProcessor,
@@ -18,6 +19,7 @@ NODE_CLASS_MAPPINGS = {
     # Chunk-based workflow nodes
     "TLBVFI_FramePairSlicer": FramePairSlicer,
     "TLBVFI_Interpolator": TLBVFI_Interpolator,
+    "TLBVFI_Interpolator_V2": TLBVFI_Interpolator_V2,
     "TLBVFI_ChunkVideoSaver": ChunkVideoSaver,
     "TLBVFI_VideoConcatenator": VideoConcatenator,
     "TLBVFI_ChunkProcessor": TLBVFI_ChunkProcessor,
@@ -30,7 +32,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
     # Chunk-based workflow
     "TLBVFI_FramePairSlicer": "TLBVFI Frame Pair Slicer",
-    "TLBVFI_Interpolator": "TLBVFI Interpolator",
+    "TLBVFI_Interpolator": "TLBVFI Interpolator [V1]",
+    "TLBVFI_Interpolator_V2": "TLBVFI Interpolator V2 [Production]",
     "TLBVFI_ChunkVideoSaver": "TLBVFI Chunk Video Saver",
     "TLBVFI_VideoConcatenator": "TLBVFI Video Concatenator",
     "TLBVFI_ChunkProcessor": "TLBVFI Chunk Processor (All-in-One)",
