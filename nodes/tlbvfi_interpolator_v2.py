@@ -496,6 +496,11 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 frame_a = (frame_a * two) - one
                 frame_b = (frame_b * two) - one
 
+                # Debug: verify dtype before model.sample
+                if i == 0 and iteration == 0:
+                    print(f"  DEBUG: frame_a dtype={frame_a.dtype}, model dtype={model_dtype}")
+                    print(f"  DEBUG: frame_a device={frame_a.device}, model device={next(iter(model.parameters())).device}")
+
                 # Interpolate
                 with torch.no_grad():
                     mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
