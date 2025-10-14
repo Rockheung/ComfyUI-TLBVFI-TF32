@@ -382,8 +382,9 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         # Normalize to [-1, 1] (original paper normalization)
         # Do this AFTER dtype conversion to ensure consistency
-        prev_tensor = (prev_tensor * 2.0) - 1.0
-        next_tensor = (next_tensor * 2.0) - 1.0
+        # Use in-place operations to maintain dtype
+        prev_tensor = prev_tensor.mul_(2.0).sub_(1.0)
+        next_tensor = next_tensor.mul_(2.0).sub_(1.0)
 
         # Store padding info for later removal
         pad_info = {
@@ -488,8 +489,11 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 frame_b = frame_b.to(device=device, dtype=model_dtype)
 
                 # Normalize AFTER dtype conversion to ensure consistency
-                frame_a = (frame_a * 2.0) - 1.0
-                frame_b = (frame_b * 2.0) - 1.0
+                # Use dtype-matched constants to prevent promotion to float32
+                two = torch.tensor(2.0, device=device, dtype=model_dtype)
+                one = torch.tensor(1.0, device=device, dtype=model_dtype)
+                frame_a = (frame_a * two) - one
+                frame_b = (frame_b * two) - one
 
                 # Interpolate
                 with torch.no_grad():
