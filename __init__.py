@@ -7,7 +7,6 @@ from .nodes import (
     TLBVFI_Interpolator,
     ChunkVideoSaver,
     VideoConcatenator,
-    DisplayText,
     TLBVFI_ChunkProcessor,
 )
 
@@ -20,7 +19,6 @@ NODE_CLASS_MAPPINGS = {
     "TLBVFI_Interpolator": TLBVFI_Interpolator,
     "TLBVFI_ChunkVideoSaver": ChunkVideoSaver,
     "TLBVFI_VideoConcatenator": VideoConcatenator,
-    "TLBVFI_DisplayText": DisplayText,
     "TLBVFI_ChunkProcessor": TLBVFI_ChunkProcessor,
 }
 
@@ -33,7 +31,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "TLBVFI_Interpolator": "TLBVFI Interpolator",
     "TLBVFI_ChunkVideoSaver": "TLBVFI Chunk Video Saver",
     "TLBVFI_VideoConcatenator": "TLBVFI Video Concatenator",
-    "TLBVFI_DisplayText": "TLBVFI Display Text",
     "TLBVFI_ChunkProcessor": "TLBVFI Chunk Processor (All-in-One)",
 }
 

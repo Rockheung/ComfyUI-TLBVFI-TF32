@@ -7,7 +7,6 @@ from .frame_pair_slicer import FramePairSlicer
 from .tlbvfi_interpolator import TLBVFI_Interpolator
 from .chunk_video_saver import ChunkVideoSaver
 from .video_concatenator import VideoConcatenator
-from .display_text import DisplayText
 from .chunk_processor import TLBVFI_ChunkProcessor
 
 __all__ = [
@@ -15,6 +14,5 @@ __all__ = [
     'TLBVFI_Interpolator',
     'ChunkVideoSaver',
     'VideoConcatenator',
-    'DisplayText',
     'TLBVFI_ChunkProcessor',
 ]
