@@ -304,8 +304,9 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         # Memory pressure check (original pattern + RIFE pattern)
         if device.type == 'cuda':
             mem_stats = get_memory_stats(device)
-            if mem_stats['free'] < 4.0:
-                print(f"TLBVFI_V2: Low memory ({mem_stats['free']:.1f}GB free), clearing cache")
+            free_gb = mem_stats.get('free_gb', 0)
+            if free_gb < 4.0:
+                print(f"TLBVFI_V2: Low memory ({free_gb:.1f}GB free), clearing cache")
                 clear_model_cache()
 
         # Load model
