@@ -371,20 +371,17 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             next_tensor = F.pad(next_tensor, (0, pad_w, 0, pad_h), mode='reflect')
             print(f"  Adaptive padding: {h}x{w} → {h+pad_h}x{w+pad_w}")
 
-        # Move to device first (non-blocking for async transfer)
-        prev_tensor = prev_tensor.to(device, non_blocking=True)
-        next_tensor = next_tensor.to(device, non_blocking=True)
-
-        # Convert to FP16 if requested (BEFORE normalization!)
-        if use_fp16:
-            prev_tensor = prev_tensor.half()
-            next_tensor = next_tensor.half()
+        # Move to device and convert dtype in one operation
+        target_dtype = torch.float16 if (use_fp16 and device.type == 'cuda') else torch.float32
+        prev_tensor = prev_tensor.to(device=device, dtype=target_dtype, non_blocking=True)
+        next_tensor = next_tensor.to(device=device, dtype=target_dtype, non_blocking=True)
 
         # Normalize to [-1, 1] (original paper normalization)
-        # Do this AFTER dtype conversion to ensure consistency
-        # Use in-place operations to maintain dtype
-        prev_tensor = prev_tensor.mul_(2.0).sub_(1.0)
-        next_tensor = next_tensor.mul_(2.0).sub_(1.0)
+        # Use dtype-matched constants to prevent promotion
+        two = torch.tensor(2.0, device=device, dtype=target_dtype)
+        one = torch.tensor(1.0, device=device, dtype=target_dtype)
+        prev_tensor = prev_tensor * two - one
+        next_tensor = next_tensor * two - one
 
         # Store padding info for later removal
         pad_info = {
@@ -412,6 +409,11 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         Returns:
             mid_frame: (1, H, W, C) in [0, 1] on CPU or GPU
         """
+        # Debug: verify dtype before model.sample
+        model_dtype = next(iter(model.parameters())).dtype
+        print(f"  DEBUG SINGLE: prev_tensor dtype={prev_tensor.dtype}, model dtype={model_dtype}")
+        print(f"  DEBUG SINGLE: prev_tensor device={prev_tensor.device}")
+
         with torch.no_grad():
             # Core interpolation (original paper: model.sample())
             mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
