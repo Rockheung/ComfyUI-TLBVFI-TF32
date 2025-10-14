@@ -457,8 +457,9 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         # Helper function to convert GPU tensor to ComfyUI format on CPU
         def to_comfy_format(tensor_gpu):
             """(1,C,H,W) [-1,1] GPU → (H,W,C) [0,1] CPU"""
-            tensor = (tensor_gpu + 1.0) / 2.0
-            tensor = tensor.clamp(0, 1)
+            # Clone first to avoid modifying original, then use in-place to maintain dtype
+            tensor = tensor_gpu.clone()
+            tensor.add_(1.0).div_(2.0).clamp_(0, 1)
 
             if cpu_offload:
                 tensor = tensor.cpu()
