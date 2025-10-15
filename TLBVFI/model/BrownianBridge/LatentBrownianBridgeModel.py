@@ -71,6 +71,11 @@ class LatentBrownianBridgeModel(BrownianBridgeModel):
         # Convert main diffusion model (UNet)
         if hasattr(self, 'denoise_fn'):
             self.denoise_fn = self.denoise_fn.half()
+            # CRITICAL: Update UNet's dtype attribute which is checked in forward()
+            # openaimodel.py:768 uses self.dtype to cast tensors
+            # If this stays float32, tensors will be cast to float32 despite FP16 parameters
+            if hasattr(self.denoise_fn, 'dtype'):
+                self.denoise_fn.dtype = torch.float16
 
         # Recursively convert all VQGAN submodules
         if hasattr(self, 'vqgan'):
