@@ -440,17 +440,10 @@ for pair in pairs:
 
 ### Codex의 추가 발견
 
-> **Codex 인사이트** (from `comfyui_frame_interpolation_analysis_from_codex.md:119-142`):
->
-> 1. **TLBVFI의 적응형 정리**: `calculate_cleanup_interval`이 실제 VRAM 통계로 정리 주기 동적 설정
->    - RIFE/FILM: 고정 10프레임
->    - TLBVFI: VRAM 상태 기반 동적 계산
->
-> 2. **배치 스트리밍**: TLBVFI는 non-blocking CPU 전송으로 배치 처리
->    - 사용 가능한 RAM에 따라 배치 크기 결정 (`tlbvfi_node.py:182-215`)
->
-> 3. **모델 언로드**: TLBVFI는 실행 종료 시 명시적으로 모델을 CPU로 언로드
->    - `torch.cuda.empty_cache` 후 synchronization (`tlbvfi_node.py:431-482`)
+- **적응형 정리 주기**: `calculate_cleanup_interval`이 실시간 VRAM 통계를 바탕으로 정리 주기를 조정합니다. RIFE/FILM이 고정 10프레임 주기를 사용하는 것과 대비되는 차별점입니다.
+- **배치 스트리밍 파이프라인**: TLBVFI는 non-blocking CPU 전송으로 프레임 배치를 스트리밍 처리하며, 사용 가능한 RAM을 기준으로 배치 크기를 동적으로 조정합니다. (`tlbvfi_node.py:182-215`)
+- **명시적 모델 언로드**: 실행 종료 시 모델을 CPU로 되돌리고 `torch.cuda.empty_cache()`를 호출해 VRAM을 즉시 회수합니다. (`tlbvfi_node.py:431-482`)
+- **수동 캐시 간격 노출 필요**: Codex 분석에 따르면 고급 사용자가 VRAM 여건에 맞춰 정리 간격을 직접 조정할 수 있는 옵션을 제공하면 운영 안정성이 높아집니다.
 
 ---
 
@@ -634,7 +627,7 @@ for frame in frames_to_process:
 ## 참고자료
 
 - **소스 코드**: [Fannovel16/ComfyUI-Frame-Interpolation](https://github.com/Fannovel16/ComfyUI-Frame-Interpolation)
-- **Codex 분석**: `docs/comfyui_frame_interpolation_analysis_from_codex.md`
+- **Codex 분석 요약**: 본문 「Codex의 추가 발견」 절에 통합 반영
 - **ComfyUI 문서**: [docs.comfy.org](https://docs.comfy.org)
 - **RIFE Paper**: [Real-Time Intermediate Flow Estimation (ECCV 2022)](https://arxiv.org/abs/2011.06294)
 - **FILM Paper**: [Frame Interpolation for Large Motion (ECCV 2022)](https://arxiv.org/abs/2202.04901)

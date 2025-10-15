@@ -2,6 +2,8 @@
 
 **Goal**: Transform current implementation into production-grade, memory-safe, hardware-optimized VFI node
 
+> **Note**: Repeated background analysis and comparison tables have been consolidated in `docs/frame_interpolation_consolidated.md`. This plan now focuses on roadmap-specific details.
+
 **Analysis Date**: 2025-10-15
 
 ---
