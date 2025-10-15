@@ -331,31 +331,24 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         # Convert to FP16 if requested
         if use_fp16 and device.type == 'cuda':
-            # Aggressive FP16 conversion: convert ALL parameters and floating-point buffers
-            print(f"  Converting model to FP16 (aggressive mode)...")
+            print(f"  Converting model to FP16 using .half() method...")
 
-            # Convert all parameters
-            for param in model.parameters():
-                param.data = param.data.to(torch.float16)
-
-            # Convert only floating-point buffers (skip integer indices!)
-            # Integer buffers like rel_pos_indices, position_ids must stay as Long/Int
-            buffers_converted = 0
-            buffers_skipped = 0
-            for buffer in model.buffers():
-                # Only convert float32 buffers, skip integer types
-                if buffer.dtype == torch.float32:
-                    buffer.data = buffer.data.to(torch.float16)
-                    buffers_converted += 1
-                else:
-                    # Skip integer buffers (Long, Int, etc.)
-                    buffers_skipped += 1
-
-            print(f"  Converted {buffers_converted} float buffers to FP16, skipped {buffers_skipped} integer buffers")
+            # Use PyTorch's built-in .half() method for recursive conversion
+            # This properly converts all submodules (VQGAN encoder/decoder, UNet, etc.)
+            model = model.half()
 
             # Verify conversion
             sample_param = next(iter(model.parameters()))
             print(f"  Verification: First parameter dtype = {sample_param.dtype}")
+
+            # Check critical submodules
+            if hasattr(model, 'vqgan'):
+                if hasattr(model.vqgan, 'encoder'):
+                    vqgan_param = next(iter(model.vqgan.encoder.parameters()))
+                    print(f"  VQGAN encoder dtype = {vqgan_param.dtype}")
+            if hasattr(model, 'denoise_fn'):
+                unet_param = next(iter(model.denoise_fn.parameters()))
+                print(f"  UNet denoise_fn dtype = {unet_param.dtype}")
 
         print_memory_summary(device, "  After load:  ")
 
@@ -472,14 +465,9 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         print(f"{'='*80}\n")
 
         with torch.no_grad():
-            # Use autocast for automatic mixed precision management
-            if prev_tensor.dtype == torch.float16:
-                with torch.amp.autocast('cuda', enabled=True, dtype=torch.float16):
-                    # Core interpolation (original paper: model.sample())
-                    mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
-            else:
-                # Core interpolation (original paper: model.sample())
-                mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
+            # Core interpolation (original paper: model.sample())
+            # No autocast needed - model and inputs are already in correct dtype
+            mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
 
             # FP16 Safety: Replace NaN/Inf with valid values before denormalization
             # This prevents black frames when diffusion sampling produces invalid values
@@ -576,13 +564,9 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                     print(f"  DEBUG: frame_a dtype={frame_a.dtype}, model dtype={model_dtype}")
                     print(f"  DEBUG: frame_a device={frame_a.device}, model device={next(iter(model.parameters())).device}")
 
-                # Interpolate with autocast for FP16
+                # Interpolate (no autocast needed - model and inputs already in correct dtype)
                 with torch.no_grad():
-                    if frame_a.dtype == torch.float16:
-                        with torch.amp.autocast('cuda', enabled=True, dtype=torch.float16):
-                            mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
-                    else:
-                        mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
+                    mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
 
                 # FP16 Safety: Replace NaN/Inf and clamp to [-1, 1]
                 if torch.isnan(mid_frame).any() or torch.isinf(mid_frame).any():
