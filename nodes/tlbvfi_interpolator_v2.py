@@ -440,8 +440,32 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         """
         # Debug: verify dtype before model.sample
         model_dtype = next(iter(model.parameters())).dtype
-        print(f"  DEBUG SINGLE: prev_tensor dtype={prev_tensor.dtype}, model dtype={model_dtype}")
-        print(f"  DEBUG SINGLE: prev_tensor device={prev_tensor.device}")
+        print(f"\n{'='*80}")
+        print(f"DEBUG SINGLE MODE:")
+        print(f"  Input tensors:")
+        print(f"    prev_tensor dtype={prev_tensor.dtype}, device={prev_tensor.device}, shape={prev_tensor.shape}")
+        print(f"    next_tensor dtype={next_tensor.dtype}, device={next_tensor.device}, shape={next_tensor.shape}")
+        print(f"  Model:")
+        print(f"    First param dtype={model_dtype}")
+
+        # Check VQGAN encoder dtype
+        if hasattr(model, 'vqgan'):
+            if hasattr(model.vqgan, 'encoder'):
+                try:
+                    vqgan_param = next(iter(model.vqgan.encoder.parameters()))
+                    print(f"    VQGAN encoder dtype={vqgan_param.dtype}")
+                except:
+                    print(f"    VQGAN encoder: Could not check dtype")
+
+        # Check UNet denoise_fn dtype
+        if hasattr(model, 'denoise_fn'):
+            try:
+                unet_param = next(iter(model.denoise_fn.parameters()))
+                print(f"    UNet denoise_fn dtype={unet_param.dtype}")
+            except:
+                print(f"    UNet denoise_fn: Could not check dtype")
+
+        print(f"{'='*80}\n")
 
         with torch.no_grad():
             # Core interpolation (original paper: model.sample())
