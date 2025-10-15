@@ -90,13 +90,19 @@ VHS_LoadVideo ──> TLBVFI_FramePairSlicer ──┐
 
    FramePairSlicer는 2개의 프레임을 하나의 배치로 출력합니다 `(2, H, W, C)`.
 
-   **방법 1: LatentFromBatch 사용** (권장)
+   **방법 1: TLBVFI_FrameFromBatch 사용** (추천)
+   ```
+   FramePairSlicer ──> FrameFromBatch [index: 0] ──> V2 prev_frame
+                   └──> FrameFromBatch [index: 1] ──> V2 next_frame
+   ```
+
+   **방법 2: LatentFromBatch 사용**
    ```
    FramePairSlicer ──> LatentFromBatch [batch_index: 0] ──> V2 prev_frame
                    └──> LatentFromBatch [batch_index: 1] ──> V2 next_frame
    ```
 
-   **방법 2: ImageBatch 노드 사용**
+   **방법 3: ImageBatch 노드 사용**
    - ComfyUI 기본 노드 중 배치 분리 노드 활용
 
 4. **TLBVFI_Interpolator_V2 연결**
@@ -170,6 +176,7 @@ FramePairSlicer 출력이 `(2, H, W, C)`이므로, ComfyUI의 배치 처리 노�
 1. ComfyUI API 사용 (Python 스크립트)
 2. ComfyUI-Manager의 Queue 기능
 3. 외부 스크립트로 pair_index 증가하며 반복
+4. 또는 **TLBVFI_BatchInterpolator_V2** 노드로 한 번에 전체 배치를 처리
 
 **예제 스크립트** (`process_video.py`):
 ```python

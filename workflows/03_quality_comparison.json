@@ -57,7 +57,7 @@
     },
     {
       "id": 3,
-      "type": "GetNode",
+      "type": "TLBVFI_FrameFromBatch",
       "pos": [750, 50],
       "size": [210, 58],
       "flags": {},
@@ -65,24 +65,31 @@
       "mode": 0,
       "inputs": [
         {
-          "name": "frame_pair",
+          "name": "images",
           "type": "IMAGE",
           "link": 2
         }
       ],
       "outputs": [
         {
-          "name": "IMAGE",
+          "name": "frame",
           "type": "IMAGE",
           "links": [6, 8, 10],
           "slot_index": 0
         }
       ],
+      "properties": {
+        "Node name for S&R": "TLBVFI_FrameFromBatch"
+      },
+      "widgets_values": {
+        "index": 0,
+        "clamp_index": true
+      },
       "title": "Prev Frame"
     },
     {
       "id": 4,
-      "type": "GetNode",
+      "type": "TLBVFI_FrameFromBatch",
       "pos": [750, 150],
       "size": [210, 58],
       "flags": {},
@@ -90,19 +97,26 @@
       "mode": 0,
       "inputs": [
         {
-          "name": "frame_pair",
+          "name": "images",
           "type": "IMAGE",
           "link": 3
         }
       ],
       "outputs": [
         {
-          "name": "IMAGE",
+          "name": "frame",
           "type": "IMAGE",
           "links": [7, 9, 11],
           "slot_index": 0
         }
       ],
+      "properties": {
+        "Node name for S&R": "TLBVFI_FrameFromBatch"
+      },
+      "widgets_values": {
+        "index": 1,
+        "clamp_index": true
+      },
       "title": "Next Frame"
     },
     {

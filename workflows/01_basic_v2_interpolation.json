@@ -1,6 +1,6 @@
 {
-  "last_node_id": 7,
-  "last_link_id": 10,
+  "last_node_id": 8,
+  "last_link_id": 7,
   "nodes": [
     {
       "id": 1,
@@ -112,13 +112,13 @@
         {
           "name": "prev_frame",
           "type": "IMAGE",
-          "link": 2,
+          "link": 3,
           "slot_index": 0
         },
         {
           "name": "next_frame",
           "type": "IMAGE",
-          "link": 3,
+          "link": 5,
           "slot_index": 1
         }
       ],
@@ -145,31 +145,66 @@
       }
     },
     {
-      "id": 4,
-      "type": "GetNode",
-      "pos": [400, 250],
+      "id": 8,
+      "type": "TLBVFI_FrameFromBatch",
+      "pos": [400, 150],
       "size": [210, 58],
       "flags": {},
       "order": 3,
       "mode": 0,
       "inputs": [
         {
-          "name": "frame_pair",
+          "name": "images",
           "type": "IMAGE",
           "link": 2
         }
       ],
       "outputs": [
         {
-          "name": "IMAGE",
+          "name": "frame",
           "type": "IMAGE",
           "links": [3],
           "slot_index": 0
         }
       ],
-      "properties": {},
+      "properties": {
+        "Node name for S&R": "TLBVFI_FrameFromBatch"
+      },
       "widgets_values": {
-        "index": 1
+        "index": 0,
+        "clamp_index": true
+      },
+      "title": "Get Prev Frame"
+    },
+    {
+      "id": 4,
+      "type": "TLBVFI_FrameFromBatch",
+      "pos": [400, 250],
+      "size": [210, 58],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "frame",
+          "type": "IMAGE",
+          "links": [5],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TLBVFI_FrameFromBatch"
+      },
+      "widgets_values": {
+        "index": 1,
+        "clamp_index": true
       },
       "title": "Get Next Frame"
     },
@@ -263,11 +298,12 @@
   ],
   "links": [
     [1, 1, 0, 2, 0, "IMAGE"],
-    [2, 2, 0, 3, 0, "IMAGE"],
-    [2, 2, 0, 4, 0, "IMAGE"],
-    [3, 4, 0, 3, 1, "IMAGE"],
-    [4, 3, 0, 5, 0, "IMAGE"],
-    [4, 3, 0, 6, 0, "IMAGE"]
+    [2, 2, 0, 8, 0, "IMAGE"],
+    [3, 8, 0, 3, 0, "IMAGE"],
+    [4, 2, 0, 4, 0, "IMAGE"],
+    [5, 4, 0, 3, 1, "IMAGE"],
+    [6, 3, 0, 5, 0, "IMAGE"],
+    [7, 3, 0, 6, 0, "IMAGE"]
   ],
   "groups": [],
   "config": {},

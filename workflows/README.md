@@ -10,8 +10,9 @@
 
 **구조**:
 ```
-VHS_LoadVideo → FramePairSlicer → TLBVFI_Interpolator_V2 → VHS_VideoCombine
-                                                          └→ PreviewImage
+VHS_LoadVideo → FramePairSlicer → [FrameFromBatch (prev/next)] → TLBVFI_Interpolator_V2
+                                                             ├→ VHS_VideoCombine
+                                                             └→ PreviewImage
 ```
 
 **주요 설정**:
@@ -30,64 +31,35 @@ VHS_LoadVideo → FramePairSlicer → TLBVFI_Interpolator_V2 → VHS_VideoCombin
 
 ---
 
-### 2. `02_batch_loop_interpolation.json` - 배치 루프 워크플로우
+### 2. `02_batch_loop_interpolation.json` - 배치 기반 전체 처리 워크플로우
 
-**용도**: 전체 비디오의 모든 프레임 쌍을 자동으로 처리
+**용도**: ChunkProcessor 없이 그래프 상에서 직접 배치 이터레이션을 구성하고 싶을 때
 
 **구조**:
 ```
-VHS_LoadVideo → FramePairSlicer → TLBVFI_Interpolator_V2 → ImageBatchToList
-                                                          → ImageListToImageBatch
-                                                          → VHS_VideoCombine
-                                                          → PreviewImage
+VHS_LoadVideo → TLBVFI_BatchInterpolator_V2 → PreviewImage
+                                     └──────→ VHS_VideoCombine (원본 오디오 연동)
+                              ↓
+                      StringFormat → ShowText (입/출력 프레임 수 표시)
 ```
 
 **주요 기능**:
-- **프레임 축적**: ImageListToImageBatch가 이전 결과를 누적
-- **진행 상황 모니터링**: StringFormat + ShowText로 실시간 진행률 표시
-- **오디오 보존**: 원본 비디오의 오디오 트랙 유지
-- **메모리 안전**: 각 반복마다 ~4.2GB만 사용
+- **그래프 내 반복**: BatchInterpolator 노드가 전체 배치를 순회하며 인접 프레임 쌍을 자동 보간
+- **TF32 최적화 유지**: 기존 V2 프로덕션 노드와 동일한 파라미터 세트를 사용
+- **유연한 출력**: `include_source_frames=False`로 보간 프레임만 추출하거나, 기본 설정으로 원본+보간 시퀀스를 반환
+- **즉시 미리보기/저장**: PreviewImage로 확인 후 VHS_VideoCombine으로 클립을 바로 저장
 
 **사용 방법**:
+1. VHS_LoadVideo에서 영상만 선택하면 전체 프레임 배치가 준비됩니다.
+2. BatchInterpolator에서 `times_to_interpolate`, `sample_steps`, `cpu_offload` 등을 조정합니다.
+3. 실행하면 모든 프레임 쌍을 순회하여 단일 시퀀스로 반환합니다.
+4. PreviewImage로 품질을 확인하고, VHS_VideoCombine으로 최종 영상을 내보냅니다.
+5. ShowText 노드에서 입력/출력 프레임 수와 (calc)로 계산된 전체 페어 수를 확인할 수 있습니다.
 
-#### 수동 방식:
-1. `pair_index = 0`으로 시작
-2. Queue Prompt 실행
-3. 완료 후 `pair_index`를 1 증가
-4. total_pairs에 도달할 때까지 반복
-
-#### 자동화 방식 (ComfyUI API):
-```python
-import requests
-import json
-
-# ComfyUI API 엔드포인트
-api_url = "http://127.0.0.1:8188/prompt"
-
-# 워크플로우 로드
-with open("02_batch_loop_interpolation.json") as f:
-    workflow = json.load(f)
-
-# 전체 프레임 쌍 수 (비디오 프레임 수 - 1)
-total_pairs = 100  # 예: 101 프레임 비디오
-
-for pair_index in range(total_pairs):
-    # pair_index 업데이트
-    workflow["nodes"][1]["widgets_values"]["pair_index"] = pair_index
-
-    # Queue에 추가
-    payload = {"prompt": workflow}
-    response = requests.post(api_url, json=payload)
-
-    print(f"Queued pair {pair_index}/{total_pairs}")
-
-    # 선택사항: 완료 대기 로직 추가 가능
-```
-
-**예상 시간** (RTX 3090, 4K, times_to_interpolate=2):
-- 프레임 쌍당: ~10초
-- 100 쌍: ~16분
-- 1000 쌍: ~2.7시간
+**추가 팁**:
+- `include_source_frames=False`로 설정하면 생성된 보간 프레임만 별도로 저장할 수 있습니다.
+- 대용량 영상에서 VRAM을 아끼고 싶다면 `cpu_offload=True`를 유지하세요.
+- Queue Prompt를 활용하면 동일한 그래프에 다른 영상만 바꿔 여러 작업을 연속으로 실행할 수 있습니다.
 
 ---
 
@@ -120,6 +92,32 @@ VHS_LoadVideo → FramePairSlicer → [Fast V2] → PreviewImage
 **주의사항**:
 - 3개 모델 인스턴스 동시 실행 → VRAM ~12GB 필요
 - 8GB GPU의 경우: 한 번에 하나씩 실행 (나머지 비활성화)
+
+---
+
+### 4. `04_video_loader_v2.json` - 비디오 로더 프리셋
+
+**용도**: 기존 영상을 불러와 원하는 프레임 쌍을 빠르게 보간하고 확인
+
+**구조**:
+```
+VHS_LoadVideo → FramePairSlicer → [Prev/Next Split] → TLBVFI_Interpolator_V2
+                                                         ├→ PreviewImage
+                                                         └→ VHS_VideoCombine (원본 오디오 유지)
+```
+
+**주요 특징**:
+- `pair_index` 슬라이더로 대상 프레임 쌍을 선택
+- V2 프로덕션 노드 기본값(TF32 + cpu_offload)으로 안전하게 실행
+- 프리뷰뿐만 아니라 짧은 클립으로 즉시 내보내기 가능
+- 큐에 여러 번 넣어 pair_index를 늘리면 전체 비디오를 순서대로 처리 가능
+
+**사용 단계**:
+1. VHS_LoadVideo에서 소스 영상 선택
+2. FramePairSlicer의 `pair_index`를 보간하고 싶은 위치로 지정
+3. 두 개의 `TLBVFI_FrameFromBatch` 노드가 자동으로 prev/next 프레임을 분리
+4. 워크플로 실행 후 PreviewImage로 결과 확인
+5. 필요시 VHS_VideoCombine 결과를 다운로드 (원본 오디오 자동 포함)
 
 ---
 
