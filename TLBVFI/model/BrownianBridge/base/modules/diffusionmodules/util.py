@@ -213,7 +213,11 @@ class SiLU(nn.Module):
 
 class GroupNorm32(nn.GroupNorm):
     def forward(self, x):
-        return super().forward(x.float()).type(x.dtype)
+        # Match input dtype with parameter dtype for proper FP16 support
+        # When model is in FP16, weight/bias are FP16, so input should be FP16 too
+        # When model is in FP32, this preserves the original behavior (x.float())
+        param_dtype = self.weight.dtype if self.weight is not None else torch.float32
+        return super().forward(x.to(param_dtype)).type(x.dtype)
 
 def conv_nd(dims, *args, **kwargs):
     """
