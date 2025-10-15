@@ -331,11 +331,12 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         # Convert to FP16 if requested
         if use_fp16 and device.type == 'cuda':
-            print(f"  Converting model to FP16 using .half() method...")
+            print(f"  Converting model to FP16 using .convert_to_fp16() method...")
 
-            # Use PyTorch's built-in .half() method for recursive conversion
-            # This properly converts all submodules (VQGAN encoder/decoder, UNet, etc.)
-            model = model.half()
+            # Use TLBVFI's custom convert_to_fp16() method
+            # This properly handles VQGAN's nested submodules which .half() misses
+            # See LatentBrownianBridgeModel.py:57-92 for implementation details
+            model = model.convert_to_fp16()
 
             # Verify conversion
             sample_param = next(iter(model.parameters()))
