@@ -1,6 +1,6 @@
 {
   "last_node_id": 7,
-  "last_link_id": 7,
+  "last_link_id": 4,
   "nodes": [
     {
       "id": 1,
@@ -21,7 +21,7 @@
         {
           "name": "frame_count",
           "type": "INT",
-          "links": [5]
+          "links": null
         },
         {
           "name": "audio",
@@ -80,7 +80,7 @@
         {
           "name": "frame_count",
           "type": "INT",
-          "links": [4]
+          "links": null
         }
       ],
       "properties": {
@@ -162,68 +162,12 @@
       }
     },
     {
-      "id": 5,
-      "type": "StringFormat",
-      "pos": [420, 420],
-      "size": [300, 150],
-      "flags": {},
-      "order": 4,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "input_frames",
-          "type": "INT",
-          "link": 5
-        },
-        {
-          "name": "output_frames",
-          "type": "INT",
-          "link": 4
-        }
-      ],
-      "outputs": [
-        {
-          "name": "STRING",
-          "type": "STRING",
-          "links": [7]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "StringFormat"
-      },
-      "widgets_values": {
-        "format": "Input frames: {0}\nOutput frames: {1}"
-      }
-    },
-    {
-      "id": 6,
-      "type": "ShowText",
-      "pos": [750, 420],
-      "size": [315, 200],
-      "flags": {},
-      "order": 5,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "text",
-          "type": "STRING",
-          "link": 7
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "ShowText"
-      },
-      "widgets_values": {
-        "text": ""
-      }
-    },
-    {
       "id": 7,
       "type": "Note",
       "pos": [50, 360],
       "size": [330, 260],
       "flags": {},
-      "order": 6,
+      "order": 4,
       "mode": 0,
       "properties": {
         "text": ""
@@ -239,10 +183,7 @@
     [1, 1, 0, 2, 0, "IMAGE"],
     [2, 2, 0, 3, 0, "IMAGE"],
     [3, 2, 0, 4, 0, "IMAGE"],
-    [4, 2, 1, 5, 1, "INT"],
-    [5, 1, 1, 5, 0, "INT"],
-    [6, 1, 2, 4, 1, "AUDIO"],
-    [7, 5, 0, 6, 0, "STRING"]
+    [4, 1, 2, 4, 1, "AUDIO"]
   ],
   "groups": [],
   "config": {},

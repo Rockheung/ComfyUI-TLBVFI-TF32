@@ -39,8 +39,6 @@ VHS_LoadVideo → FramePairSlicer → [FrameFromBatch (prev/next)] → TLBVFI_In
 ```
 VHS_LoadVideo → TLBVFI_BatchInterpolator_V2 → PreviewImage
                                      └──────→ VHS_VideoCombine (원본 오디오 연동)
-                              ↓
-                      StringFormat → ShowText (입/출력 프레임 수 표시)
 ```
 
 **주요 기능**:
@@ -54,8 +52,6 @@ VHS_LoadVideo → TLBVFI_BatchInterpolator_V2 → PreviewImage
 2. BatchInterpolator에서 `times_to_interpolate`, `sample_steps`, `cpu_offload` 등을 조정합니다.
 3. 실행하면 모든 프레임 쌍을 순회하여 단일 시퀀스로 반환합니다.
 4. PreviewImage로 품질을 확인하고, VHS_VideoCombine으로 최종 영상을 내보냅니다.
-5. ShowText 노드에서 입력/출력 프레임 수와 (calc)로 계산된 전체 페어 수를 확인할 수 있습니다.
-
 **추가 팁**:
 - `include_source_frames=False`로 설정하면 생성된 보간 프레임만 별도로 저장할 수 있습니다.
 - 대용량 영상에서 VRAM을 아끼고 싶다면 `cpu_offload=True`를 유지하세요.
