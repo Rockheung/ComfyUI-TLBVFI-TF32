@@ -331,17 +331,14 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         # Convert to FP16 if requested
         if use_fp16 and device.type == 'cuda':
-            # TEMPORARY: Disable FP16 for debugging
-            print(f"  WARNING: FP16 disabled for debugging dtype issues")
-            print(f"  Model will run in FP32 mode")
-            use_fp16 = False  # Override
-            # # Use convert_to_fp16() instead of half() to properly convert VQGAN submodules
-            # if hasattr(model, 'convert_to_fp16'):
-            #     model.convert_to_fp16()
-            #     print(f"  Converted to FP16 using convert_to_fp16() (VQGAN-aware)")
-            # else:
-            #     model = model.half()
-            #     print(f"  Converted to FP16 using half() (fallback)")
+            # Use .to(dtype=torch.float16) for complete conversion of all submodules
+            # This is more reliable than .half() or custom convert_to_fp16()
+            model = model.to(dtype=torch.float16)
+            print(f"  Converted to FP16 using .to(dtype=torch.float16) (all modules)")
+
+            # Verify conversion worked
+            sample_param = next(iter(model.parameters()))
+            print(f"  Verification: model dtype = {sample_param.dtype}")
 
         print_memory_summary(device, "  After load:  ")
 
