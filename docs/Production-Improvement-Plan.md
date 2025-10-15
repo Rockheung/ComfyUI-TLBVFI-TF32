@@ -76,7 +76,7 @@ Based on `docs/ComfyUI-Frame-Interpolation-Analysis.md`:
 |---------|-----------|----------------|
 | CPU output accumulation | ✅ Every frame | ❌ Batch at end |
 | Periodic cache clearing | ✅ Every 10 frames | ❌ Only on memory pressure |
-| FP16 inference | ✅ RIFE default | ❌ Not implemented |
+| TF32 acceleration | ❌ (legacy FP32) | ❌ Explicit toggle missing |
 | torch.no_grad() | ✅ FILM, ❌ RIFE missing | ✅ Implemented |
 | Immediate GPU→CPU transfer | ✅ `non_blocking=True` | ❌ Batch transfer |
 
@@ -102,7 +102,7 @@ From original analysis (`docs/TLBVFI-Original-Implementation-Analysis.md`):
 3. **Periodic Cache Clearing** (RIFE pattern)
 4. **CPU Accumulation** (RIFE/FILM pattern)
 5. **Adaptive Padding** (Original pattern)
-6. **FP16 Support** (RIFE pattern + TF32)
+6. **TF32 Acceleration** (Ampere tensor cores)
 7. **Configurable Quality/Speed** (Original pattern)
 
 ### Architecture Overview
@@ -123,7 +123,7 @@ From original analysis (`docs/TLBVFI-Original-Implementation-Analysis.md`):
 │        TLBVFI_Interpolator_V2 (NEW - Production Grade)       │
 │                                                              │
 │  ┌────────────────────────────────────────────────────┐    │
-│  │ 1. Load model with FP16 + TF32 (cached globally)  │    │
+│  │ 1. Load model with TF32-ready cache (tensor cores) │   │
 │  │ 2. Adaptive padding for input frames               │    │
 │  │ 3. Single interpolation: (frame0, frame1) → mid   │    │
 │  │ 4. Optional recursive bisection with memory mgmt   │    │
@@ -162,7 +162,6 @@ class TLBVFI_Interpolator_V2:
     Features:
     - Single-frame interpolation (aligned with original paper)
     - Optional recursive bisection with memory management
-    - FP16 inference support
     - TF32 acceleration on RTX 30/40
     - Adaptive padding for arbitrary resolutions
     - Immediate GPU→CPU transfer
@@ -184,7 +183,6 @@ class TLBVFI_Interpolator_V2:
                 # 0 = single frame only (original paper)
                 # 1-4 = recursive bisection (2x, 4x, 8x, 16x)
 
-                "use_fp16": ("BOOLEAN", {"default": True}),
                 "enable_tf32": ("BOOLEAN", {"default": True}),
 
                 "sample_steps": ([10, 20, 50], {"default": 10}),
@@ -212,14 +210,13 @@ class TLBVFI_Interpolator_V2:
         self._frame_pair_count = 0  # For periodic cache clearing
 
     def interpolate(self, prev_frame, next_frame, model_name,
-                   times_to_interpolate=0, use_fp16=True, enable_tf32=True,
+                   times_to_interpolate=0, enable_tf32=True,
                    sample_steps=10, flow_scale=0.5, cpu_offload=True, gpu_id=0):
         """
         Production-grade interpolation with memory safety.
 
-        Memory profile (4K frame):
-        - FP32: ~260MB per frame in GPU
-        - FP16: ~130MB per frame in GPU
+        Memory profile (4K frame with cpu_offload):
+        - TF32 (tensor core FP32) path keeps GPU usage under 5GB
         - CPU offload: ~0MB sustained (only during processing)
 
         Args:
@@ -227,7 +224,6 @@ class TLBVFI_Interpolator_V2:
             next_frame: (1, H, W, C) ComfyUI tensor
             model_name: Model checkpoint
             times_to_interpolate: 0=single, 1=2x, 2=4x, 3=8x, 4=16x
-            use_fp16: Enable FP16 inference (2x memory reduction)
             enable_tf32: Enable TF32 on RTX 30/40 (4x speed boost)
             sample_steps: Diffusion steps (10/20/50)
             flow_scale: Flow computation scale (0.5=fast, 1.0=quality)
@@ -247,12 +243,12 @@ class TLBVFI_Interpolator_V2:
             torch.backends.cudnn.allow_tf32 = True
 
         # Load model with caching
-        cache_key = f"{model_name}_{gpu_id}_{use_fp16}"
-        model = self._get_or_load_model(cache_key, model_name, device, use_fp16, sample_steps)
+        cache_key = f"{model_name}_{gpu_id}_{sample_steps}"
+        model = self._get_or_load_model(cache_key, model_name, device, sample_steps)
 
         # Preprocessing with adaptive padding
         prev_tensor, next_tensor, pad_info = self._preprocess_with_padding(
-            prev_frame, next_frame, device, use_fp16
+            prev_frame, next_frame, device
         )
 
         # Core interpolation
@@ -377,50 +373,38 @@ class TLBVFI_Interpolator_V2:
 #### Component 2: Adaptive Padding (from Original)
 
 ```python
-def _preprocess_with_padding(self, prev_frame, next_frame, device, use_fp16):
+def _preprocess_with_padding(self, prev_frame, next_frame, device):
     """
     Adaptive padding to satisfy model dimension requirements.
     Ported from original TLBVFI (model/VQGAN/vqgan.py:406-432).
     """
-    # Convert to PyTorch format
-    prev_tensor = prev_frame.permute(0, 3, 1, 2).float()  # (1,H,W,C) → (1,C,H,W)
+    prev_tensor = prev_frame.permute(0, 3, 1, 2).float()
     next_tensor = next_frame.permute(0, 3, 1, 2).float()
 
     b, c, h, w = prev_tensor.shape
 
-    # Calculate minimum required dimension
-    # From original: min_side = 8 * 2^(num_resolutions-1) * 4
-    # For default config: 8 * 2^(5-1) * 4 = 8 * 16 * 4 = 512
-    encoder_resolutions = 5  # From original config
+    encoder_resolutions = 5
     min_side = 8 * (2 ** (encoder_resolutions - 1)) * 4
 
-    # Calculate padding
     pad_h = 0 if h % min_side == 0 else min_side - (h % min_side)
     pad_w = 0 if w % min_side == 0 else min_side - (w % min_side)
-
-    # Avoid padding full dimension (original behavior)
     if pad_h == h:
         pad_h = 0
     if pad_w == w:
         pad_w = 0
 
-    # Apply padding
     if pad_h > 0 or pad_w > 0:
         prev_tensor = F.pad(prev_tensor, (0, pad_w, 0, pad_h), mode='reflect')
         next_tensor = F.pad(next_tensor, (0, pad_w, 0, pad_h), mode='reflect')
         print(f"  TLBVFI_V2: Applied adaptive padding: {h}x{w} → {h+pad_h}x{w+pad_w}")
 
-    # Normalize and convert dtype
-    prev_tensor = (prev_tensor * 2.0) - 1.0  # [0,1] → [-1,1]
-    next_tensor = (next_tensor * 2.0) - 1.0
+    prev_tensor = prev_tensor.to(device=device, dtype=torch.float32, non_blocking=True)
+    next_tensor = next_tensor.to(device=device, dtype=torch.float32, non_blocking=True)
 
-    if use_fp16:
-        prev_tensor = prev_tensor.half()
-        next_tensor = next_tensor.half()
-
-    # Move to device
-    prev_tensor = prev_tensor.to(device, non_blocking=True)
-    next_tensor = next_tensor.to(device, non_blocking=True)
+    two = torch.tensor(2.0, device=device, dtype=torch.float32)
+    one = torch.tensor(1.0, device=device, dtype=torch.float32)
+    prev_tensor = prev_tensor * two - one
+    next_tensor = next_tensor * two - one
 
     pad_info = {
         'pad_h': pad_h,
@@ -430,29 +414,14 @@ def _preprocess_with_padding(self, prev_frame, next_frame, device, use_fp16):
     }
 
     return prev_tensor, next_tensor, pad_info
-
-def _postprocess_with_unpadding(self, frames, pad_info):
-    """
-    Remove padding and convert to ComfyUI format.
-    """
-    # frames: (N, C, H, W) or (C, H, W) in [-1, 1]
-
-    # Remove padding
-    if pad_info['pad_h'] > 0:
-        frames = frames[..., :pad_info['orig_h'], :]
-    if pad_info['pad_w'] > 0:
-        frames = frames[..., :, :pad_info['orig_w']]
-
-    # Denormalize and convert format handled in calling functions
-    return frames
 ```
 
-#### Component 3: Model Loading with FP16
+#### Component 3: Model Loading with TF32 Defaults
 
 ```python
-def _get_or_load_model(self, cache_key, model_name, device, use_fp16, sample_steps):
+def _get_or_load_model(self, cache_key, model_name, device, sample_steps):
     """
-    Load model with caching, FP16 support, and configurable timesteps.
+    Load model with caching and configurable timesteps.
     """
     global _MODEL_CACHE
 
@@ -460,26 +429,18 @@ def _get_or_load_model(self, cache_key, model_name, device, use_fp16, sample_ste
         print(f"TLBVFI_V2: Reusing cached model {model_name}")
         return _MODEL_CACHE[cache_key]
 
-    # Memory pressure check
     if device.type == 'cuda':
         mem_stats = get_memory_stats(device)
         if mem_stats['free'] < 4.0:
             print(f"TLBVFI_V2: Low memory ({mem_stats['free']:.1f}GB), clearing cache")
             clear_model_cache()
 
-    # Load model
-    print(f"TLBVFI_V2: Loading {model_name} (FP16={use_fp16}, steps={sample_steps})")
-
+    print(f"TLBVFI_V2: Loading {model_name} (steps={sample_steps})")
+    print_memory_summary(device, "  Before load: ")
     model = load_tlbvfi_model(model_name, device, sample_steps=sample_steps)
+    print_memory_summary(device, "  After load:  ")
 
-    # Convert to FP16 if requested
-    if use_fp16 and device.type == 'cuda':
-        model = model.half()
-        print(f"  Converted to FP16 (2x memory reduction)")
-
-    # Cache model
     _MODEL_CACHE[cache_key] = model
-
     return model
 ```
 
@@ -497,10 +458,10 @@ def _get_or_load_model(self, cache_key, model_name, device, use_fp16, sample_ste
    - Implement recursive bisection with memory management
    - Add immediate CPU offload
 
-2. **Add FP16 Support**
-   - Model conversion to FP16
-   - Input/output dtype handling
-   - Mixed precision safety checks
+2. **Add TF32 Support**
+   - Expose enable_tf32 flag
+   - Ensure dtype consistency (float32 tensors)
+   - Validate tensor-core performance path
 
 3. **Add Periodic Cache Clearing**
    - Track frame pair count
@@ -509,30 +470,23 @@ def _get_or_load_model(self, cache_key, model_name, device, use_fp16, sample_ste
 
 **Expected Outcomes**:
 - Memory-safe interpolation for 4K video
-- 2x memory reduction with FP16
+- Stable TF32 execution on RTX 30/40
 - No OOM crashes on long videos
 
 ### Phase 2: Performance Optimizations (Week 2)
 
 **Priority: HIGH**
 
-4. **TF32 Acceleration**
-   - Auto-detect RTX 30/40 series
-   - Enable TF32 globally
-   - Benchmark speedup
-
-5. **Configurable Quality Settings**
+4. **Configurable Quality Settings**
    - Expose sample_steps parameter (10/20/50)
    - Expose flow_scale parameter (0.5/1.0)
    - Add quality presets (fast/balanced/quality)
 
-6. **Model Loading Optimizations**
-   - Cache with FP16/FP32 distinction
+5. **Model Loading Optimizations**
    - Add model warmup pass
    - Optimize checkpoint loading
 
 **Expected Outcomes**:
-- 4x speedup on RTX 30/40 with TF32
 - User control over quality/speed tradeoff
 - Faster model loading
 
@@ -614,12 +568,11 @@ Total: ~5GB peak VRAM (FAILS on 8GB GPU!)
 ### Production V2 (SAFE)
 
 ```
-times_to_interpolate=4, 4K, FP16:
+times_to_interpolate=4, 4K, TF32 + cpu_offload:
 - Model: 3.6GB (cached, persistent)
 - Peak per iteration:
-  - 2 input frames on GPU: 2 × 130MB = 260MB
-  - 1 output frame: 130MB
-  - Intermediate buffers: ~200MB
+  - 2 input frames on GPU: 2 × 260MB ≈ 520MB
+  - Intermediate buffers: ~80MB
   Total per iteration: ~600MB
 - CPU accumulation: Unlimited frames (no GPU impact)
 
@@ -630,7 +583,7 @@ Fits comfortably on 8GB GPU with headroom!
 ### RIFE Comparison (for reference)
 
 ```
-RIFE inference, 4K, FP16:
+RIFE inference, 4K:
 - Model: ~50MB (tiny!)
 - Per-frame processing: ~300MB
 - CPU accumulation: 0MB GPU impact
@@ -667,7 +620,7 @@ Total: ~350MB peak (extremely efficient!)
    - Compare padded vs non-padded outputs
    - Verify no artifacts at boundaries
 
-2. **FP16 vs FP32 Quality**
+2. **TF32 vs Legacy FP32 Quality**
    - PSNR/SSIM comparison
    - Visual inspection for artifacts
 
@@ -693,7 +646,6 @@ Total: ~350MB peak (extremely efficient!)
 
 - ✅ No OOM on 8GB GPU with 4K video
 - ✅ Memory usage flat over 100+ frame pairs
-- ✅ FP16 support with <1% quality loss
 - ✅ Adaptive padding for arbitrary resolutions
 - ✅ Aligned with original paper architecture
 
@@ -718,7 +670,7 @@ Total: ~350MB peak (extremely efficient!)
 The current chunk-based approach deviates from the original paper and introduces memory management issues. The production V2 solution:
 
 1. **Returns to Original Paper Design**: Single-frame interpolation as core operation
-2. **Adopts RIFE/FILM Patterns**: CPU offload, periodic clearing, FP16
+2. **Adopts RIFE/FILM Patterns**: CPU offload, periodic clearing, ComfyUI cache hooks
 3. **Adds Original Optimizations**: Adaptive padding, flow scale, configurable timesteps
 4. **Simplifies Architecture**: Remove custom video encoding, use VHS
 5. **Guarantees Memory Safety**: Flat memory usage regardless of video length

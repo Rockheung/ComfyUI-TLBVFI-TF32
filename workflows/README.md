@@ -16,7 +16,6 @@ VHS_LoadVideo → FramePairSlicer → TLBVFI_Interpolator_V2 → VHS_VideoCombin
 
 **주요 설정**:
 - `times_to_interpolate`: 1 (3 프레임 출력)
-- `use_fp16`: True (권장)
 - `enable_tf32`: True (RTX 30/40)
 - `sample_steps`: 10 (빠른 처리)
 - `cpu_offload`: True (메모리 안전)
@@ -27,7 +26,7 @@ VHS_LoadVideo → FramePairSlicer → TLBVFI_Interpolator_V2 → VHS_VideoCombin
 3. 각 실행마다 `pair_index`를 1씩 증가
 4. 결과를 프리뷰하거나 비디오로 저장
 
-**메모리**: ~4.2GB VRAM (4K, FP16)
+**메모리**: ~4.2GB VRAM (4K, TF32 + cpu_offload)
 
 ---
 
@@ -131,30 +130,27 @@ VHS_LoadVideo → FramePairSlicer → [Fast V2] → PreviewImage
 **8GB GPU의 경우**:
 ```json
 {
-  "use_fp16": true,          // 필수
-  "enable_tf32": true,        // 권장 (RTX 30/40)
-  "cpu_offload": true,        // 필수
-  "times_to_interpolate": 2   // 최대 권장값
+  "enable_tf32": true,
+  "cpu_offload": true,
+  "times_to_interpolate": 2
 }
 ```
 
 **12GB+ GPU의 경우**:
 ```json
 {
-  "use_fp16": true,          // 권장 (속도 향상)
-  "enable_tf32": true,        // 권장
-  "cpu_offload": false,       // 선택 (약간 더 빠름)
-  "times_to_interpolate": 3   // 안전
+  "enable_tf32": true,
+  "cpu_offload": false,
+  "times_to_interpolate": 3
 }
 ```
 
 **24GB+ GPU의 경우**:
 ```json
 {
-  "use_fp16": false,         // 선택 (최고 품질)
-  "enable_tf32": true,        // 권장
-  "cpu_offload": false,       // 권장 (최고 속도)
-  "times_to_interpolate": 4   // 안전
+  "enable_tf32": true,
+  "cpu_offload": false,
+  "times_to_interpolate": 4
 }
 ```
 
@@ -179,7 +175,7 @@ VHS_LoadVideo → FramePairSlicer → [Fast V2] → PreviewImage
 
 ### 해상도별 권장 설정
 
-| 해상도 | times_to_interpolate | sample_steps | 예상 VRAM (FP16) |
+| 해상도 | times_to_interpolate | sample_steps | 예상 VRAM (TF32) |
 |--------|---------------------|--------------|------------------|
 | 720p (HD) | 4 (16x) | 20 | ~3GB |
 | 1080p (FHD) | 3 (8x) | 20 | ~3.5GB |
@@ -190,11 +186,10 @@ VHS_LoadVideo → FramePairSlicer → [Fast V2] → PreviewImage
 ### 트러블슈팅
 
 #### OOM 에러 발생 시:
-1. `use_fp16`을 `true`로 설정
-2. `cpu_offload`를 `true`로 설정
-3. `times_to_interpolate`를 낮춤 (4→3→2→1→0)
-4. 다른 ComfyUI 노드나 프로그램 종료
-5. ComfyUI 재시작 (캐시 클리어)
+1. `cpu_offload`를 `true`로 설정
+2. `times_to_interpolate`를 낮춤 (4→3→2→1→0)
+3. 다른 ComfyUI 노드나 프로그램 종료
+4. ComfyUI 재시작 (캐시 클리어)
 
 #### 속도가 느릴 때:
 1. `enable_tf32`가 `true`인지 확인 (RTX 30/40만 해당)
@@ -206,8 +201,7 @@ VHS_LoadVideo → FramePairSlicer → [Fast V2] → PreviewImage
 #### 품질이 기대 이하일 때:
 1. `sample_steps`를 높임 (10→20→50)
 2. `flow_scale`을 1.0으로 설정
-3. `use_fp16`을 `false`로 (24GB+ GPU만 권장)
-4. 입력 비디오 품질 확인 (압축, 노이즈 등)
+3. 입력 비디오 품질 확인 (압축, 노이즈 등)
 
 ---
 

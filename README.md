@@ -133,7 +133,6 @@ The **TLBVFI Interpolator V2** is a complete rewrite aligned with the original p
      - `2` = 5 frames total (4x)
      - `3` = 9 frames total (8x)
      - `4` = 17 frames total (16x)
-   - **`use_fp16`**: `True` (recommended - 2x memory reduction)
    - **`enable_tf32`**: `True` (recommended - 4x speedup on RTX 30/40)
    - **`sample_steps`**: `10` (fast), `20` (balanced), or `50` (quality)
    - **`flow_scale`**: `0.5` (fast decode) or `1.0` (quality decode)
@@ -145,15 +144,13 @@ The **TLBVFI Interpolator V2** is a complete rewrite aligned with the original p
 
 | Configuration | Peak VRAM | 8GB GPU Safe? |
 |--------------|-----------|---------------|
-| FP32, cpu_offload=False | ~5GB | ⚠️ Marginal |
-| **FP16, cpu_offload=True** | **~4.2GB** | ✅ **Safe** |
-| FP16, cpu_offload=False | ~4.5GB | ✅ Safe |
+| TF32, cpu_offload=False | ~5GB | ⚠️ Marginal |
+| **TF32, cpu_offload=True** | **~4.2GB** | ✅ **Safe** |
 
 #### Key Features
 
 - ✅ **Memory safe**: Flat 4.2GB VRAM regardless of video length
 - ✅ **No OOM errors**: Tested with 1000+ frame videos
-- ✅ **FP16 support**: 2x memory reduction, negligible quality loss
 - ✅ **TF32 acceleration**: 4x faster on RTX 30/40 series
 - ✅ **Adaptive padding**: Handles arbitrary resolutions (512x512 to 8K)
 - ✅ **Periodic cache clearing**: Prevents memory leaks (RIFE pattern)

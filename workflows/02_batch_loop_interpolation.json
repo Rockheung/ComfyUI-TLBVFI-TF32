@@ -185,7 +185,6 @@
       "widgets_values": {
         "model_name": "vimeo_unet.pth",
         "times_to_interpolate": 2,
-        "use_fp16": true,
         "enable_tf32": true,
         "sample_steps": 10,
         "flow_scale": 0.5,
@@ -386,7 +385,7 @@
         "text": ""
       },
       "widgets_values": {
-        "text": "TLBVFI V2 Batch Loop Workflow\n\nThis workflow processes ALL frame pairs automatically:\n\n1. Load video\n2. Loop through all pairs (use Queue Prompt with incrementing pair_index)\n3. Accumulate interpolated frames\n4. Save final video with original audio\n\nHow to use:\n- Set pair_index = 0 for first run\n- Increment pair_index manually or use external script\n- Previous results accumulate in ImageListToImageBatch\n- Final video combines all pairs\n\nFor automation:\n- Use ComfyUI API to queue workflows programmatically\n- Or use ComfyUI-Manager's batch processing\n\nMemory: ~4.2GB VRAM constant (FP16 mode)"
+        "text": "TLBVFI V2 Batch Loop Workflow\n\nThis workflow processes ALL frame pairs automatically:\n\n1. Load video\n2. Loop through all pairs (use Queue Prompt with incrementing pair_index)\n3. Accumulate interpolated frames\n4. Save final video with original audio\n\nHow to use:\n- Set pair_index = 0 for first run\n- Increment pair_index manually or use external script\n- Previous results accumulate in ImageListToImageBatch\n- Final video combines all pairs\n\nFor automation:\n- Use ComfyUI API to queue workflows programmatically\n- Or use ComfyUI-Manager's batch processing\n\nMemory: ~4.2GB VRAM constant (TF32 + cpu_offload)"
       },
       "bgcolor": "#233",
       "color": "#355"

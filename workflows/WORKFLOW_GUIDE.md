@@ -48,7 +48,6 @@ LoadImage (next) ──┘                            └──> SaveImage
    ```
    model_name: vimeo_unet.pth
    times_to_interpolate: 0 (단일 프레임)
-   use_fp16: ✓ (체크)
    enable_tf32: ✓ (체크)
    sample_steps: 10
    flow_scale: 0.5
@@ -205,7 +204,6 @@ for pair_idx in range(total_pairs):
 ### Q4: 메모리 부족 오류가 나요
 
 **A**: V2 설정 확인:
-- `use_fp16`: 반드시 체크
 - `cpu_offload`: 반드시 체크
 - `times_to_interpolate`: 낮추기 (4→2→1→0)
 - ComfyUI 재시작으로 캐시 클리어
@@ -224,12 +222,12 @@ for pair_idx in range(total_pairs):
 
 ### 해상도별:
 
-| 해상도 | times_to_interpolate | use_fp16 | cpu_offload | 예상 VRAM |
-|--------|---------------------|----------|-------------|-----------|
-| 720p | 3 | ✓ | ✓ | ~3GB |
-| 1080p | 2 | ✓ | ✓ | ~3.5GB |
-| 4K | 1 | ✓ | ✓ | ~4.2GB |
-| 8K | 0 | ✓ | ✓ | ~8GB |
+| 해상도 | times_to_interpolate | cpu_offload | 예상 VRAM (TF32) |
+|--------|---------------------|-------------|------------------|
+| 720p | 3 | ✓ | ~3GB |
+| 1080p | 2 | ✓ | ~3.5GB |
+| 4K | 1 | ✓ | ~4.2GB |
+| 8K | 0 | ✓ | ~8GB |
 
 ### 용도별:
 

@@ -137,7 +137,6 @@
       "widgets_values": {
         "model_name": "vimeo_unet.pth",
         "times_to_interpolate": 1,
-        "use_fp16": true,
         "enable_tf32": true,
         "sample_steps": 10,
         "flow_scale": 0.5,
@@ -256,7 +255,7 @@
         "text": ""
       },
       "widgets_values": {
-        "text": "TLBVFI V2 Basic Workflow\n\n1. Load video with VHS_LoadVideo\n2. Slice into frame pairs (increment pair_index for each run)\n3. Interpolate with V2 (memory-safe, FP16 enabled)\n4. Save as video or preview\n\nRecommended Settings:\n- use_fp16: True (2x memory reduction)\n- enable_tf32: True (4x speedup on RTX 30/40)\n- sample_steps: 10 (fast), 20 (balanced), 50 (quality)\n- cpu_offload: True (for long videos)\n\nMemory: ~4.2GB VRAM for 4K with FP16"
+        "text": "TLBVFI V2 Basic Workflow\n\n1. Load video with VHS_LoadVideo\n2. Slice into frame pairs (increment pair_index for each run)\n3. Interpolate with V2 (memory-safe, TF32 enabled)\n4. Save as video or preview\n\nRecommended Settings:\n- enable_tf32: True (4x speedup on RTX 30/40)\n- sample_steps: 10 (fast), 20 (balanced), 50 (quality)\n- cpu_offload: True (for long videos)\n\nMemory: ~4.2GB VRAM for 4K with TF32 + cpu_offload"
       },
       "bgcolor": "#233",
       "color": "#355"

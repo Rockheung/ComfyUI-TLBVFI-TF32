@@ -14,7 +14,7 @@
 ## 2. ComfyUI-TLBVFI-TF32 Node
 - Production V2 node reimplements pairwise interpolation, adds adaptive padding, CPU offload, and periodic cache clearing.
 - Global model cache keeps the 3.6 GB checkpoint resident per session; cleanup occurs when VRAM pressure is detected.
-- TF32 default for Ampere/Ada GPUs; optional FP16 switch halves VRAM at the cost of latency-sensitive accuracy checks.
+- TF32 is the optimized path for Ampere/Ada GPUs, providing tensor-core acceleration without precision loss.
 - Recursive interpolation now processes one pair at a time, moving completed frames back to CPU immediately to prevent exponential VRAM growth.
 - Chunk workflow uses FFmpeg for on-disk storage; roadmap recommends batching pairs and streaming writes to lower subprocess overhead.
 
@@ -23,7 +23,7 @@
 - `soft_empty_cache()` runs every N pairs (default 10) plus a final cleanup; both nodes call `gc.collect()` alongside.
 - Models reload per workflow run (no global cache); checkpoints cached on disk under `./ckpts/<model_type>/`.
 - `torch.no_grad()` consistently wraps FILM forward passes; RIFE relies on `.detach().cpu()`, leaving slight autograd overhead.
-- CPU→GPU transfers stick to float32 during compute, then cast to float16 for storage to balance speed and RAM footprint.
+- CPU→GPU transfers stay in float32; both projects prioritise VRAM stability over half-precision conversions.
 
 ## 4. Consolidated Action Items
 1. Expose user override for cache-clear cadence while keeping auto-detected safety defaults.
@@ -50,7 +50,7 @@
 ## 2. ComfyUI-TLBVFI-TF32 노드
 - Production V2 노드는 프레임 쌍 단위 추론을 재구현하고, 적응형 패딩, CPU 오프로드, 주기적 캐시 정리 등을 도입.
 - 3.6 GB 체크포인트를 세션 동안 전역 캐시에 유지하며 VRAM 압박 감지 시 정리.
-- Ampere/Ada GPU에서는 TF32가 기본 활성화되고, 선택적 FP16 스위치로 VRAM 사용량을 절반으로 줄일 수 있음(품질 검증 필요).
+- Ampere/Ada GPU에서는 TF32를 기본 경로로 사용해 텐서 코어 가속과 정밀도를 동시에 확보합니다.
 - 재귀 보간은 한 번에 한 쌍만 GPU에서 처리하고 완료된 프레임은 즉시 CPU로 이동해 VRAM 폭증을 방지.
 - 청크 기반 워크플로우는 FFmpeg로 디스크에 저장하며, 향후에는 페어 배치 처리와 스트리밍 인코딩으로 프로세스 오버헤드를 줄이는 것이 권장.
 
@@ -59,7 +59,7 @@
 - `soft_empty_cache()`를 기본 10쌍마다 실행하고 마지막에도 호출하며, 항상 `gc.collect()`와 함께 사용.
 - 워크플로우 실행마다 모델을 다시 로드하지만 체크포인트는 `./ckpts/<model_type>/` 경로에 디스크 캐시로 저장.
 - FILM은 `torch.no_grad()`로 감싸 VRAM 오버헤드를 줄이고, RIFE는 `.detach().cpu()`로 처리해 약간의 오버헤드가 남음.
-- CPU→GPU 전송은 float32로 계산하고 저장 단계에서 float16으로 변환해 속도와 메모리 사용량을 균형 있게 유지.
+- CPU→GPU 전송은 float32 기준으로 유지해 VRAM 일관성을 확보합니다.
 
 ## 4. 통합 실행 계획
 1. 자동 감지된 안전 기본값을 유지하되, 사용자 정의 캐시 정리 주기를 옵션으로 제공.
@@ -67,4 +67,3 @@
 3. 입력·출력 경로 전반에 적응형 패딩/언패딩 헬퍼를 이식해 해상도 제약을 제거.
 4. 10/20/50 스텝과 linear/cosine 프리셋 등 샘플링 스케줄과 flow-scale 제어를 UI로 노출.
 5. 긴 청크 작업 시 FFmpeg 프로세스를 재사용하거나 버퍼 기반 인코더로 전환해 서브프로세스 오버헤드를 최소화.
-

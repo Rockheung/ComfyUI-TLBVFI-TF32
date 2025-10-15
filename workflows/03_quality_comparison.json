@@ -139,7 +139,6 @@
       "widgets_values": {
         "model_name": "vimeo_unet.pth",
         "times_to_interpolate": 1,
-        "use_fp16": true,
         "enable_tf32": true,
         "sample_steps": 10,
         "flow_scale": 0.5,
@@ -182,7 +181,6 @@
       "widgets_values": {
         "model_name": "vimeo_unet.pth",
         "times_to_interpolate": 1,
-        "use_fp16": true,
         "enable_tf32": true,
         "sample_steps": 20,
         "flow_scale": 0.5,
@@ -225,7 +223,6 @@
       "widgets_values": {
         "model_name": "vimeo_unet.pth",
         "times_to_interpolate": 1,
-        "use_fp16": true,
         "enable_tf32": true,
         "sample_steps": 50,
         "flow_scale": 1.0,
@@ -367,7 +364,7 @@
         "text": ""
       },
       "widgets_values": {
-        "text": "TLBVFI V2 Quality Comparison Workflow\n\nCompare three quality settings side-by-side:\n\n1. Fast Mode:\n   - sample_steps: 10 (paper default)\n   - flow_scale: 0.5 (fast decode)\n   - Speed: ~8s per pair (RTX 3090, 4K)\n\n2. Balanced Mode:\n   - sample_steps: 20\n   - flow_scale: 0.5\n   - Speed: ~16s per pair\n   - Quality: Noticeable improvement\n\n3. Quality Mode:\n   - sample_steps: 50\n   - flow_scale: 1.0 (full resolution flow)\n   - Speed: ~40s per pair\n   - Quality: Best results\n\nUse ImageCompare to see differences.\nAll modes use FP16 + TF32 for consistency."
+        "text": "TLBVFI V2 Quality Comparison Workflow\n\nCompare three quality settings side-by-side:\n\n1. Fast Mode:\n   - sample_steps: 10 (paper default)\n   - flow_scale: 0.5 (fast decode)\n   - Speed: ~8s per pair (RTX 3090, 4K)\n\n2. Balanced Mode:\n   - sample_steps: 20\n   - flow_scale: 0.5\n   - Speed: ~16s per pair\n   - Quality: Noticeable improvement\n\n3. Quality Mode:\n   - sample_steps: 50\n   - flow_scale: 1.0 (full resolution flow)\n   - Speed: ~40s per pair\n   - Quality: Best results\n\nUse ImageCompare to see differences.\nAll modes run with TF32 acceleration for consistency."
       },
       "bgcolor": "#233",
       "color": "#355"

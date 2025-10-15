@@ -6,18 +6,12 @@ Aligned with original TLBVFI paper + RIFE/FILM best practices.
 Key Features:
 - Single-frame interpolation (original paper pattern)
 - Optional recursive bisection with memory management
-- FP16 inference support (2x memory reduction)
 - TF32 acceleration on RTX 30/40 series
 - Adaptive padding for arbitrary resolutions (original pattern)
 - Immediate GPU→CPU transfer (RIFE pattern)
 - Periodic cache clearing every 10 pairs (RIFE pattern)
 - Configurable timestep schedule (10/20/50 steps)
 - Flow-guided decoding control (scale parameter)
-
-Memory Profile (4K, FP16):
-- Model: 3.6GB (cached, persistent)
-- Processing: ~600MB peak per iteration
-- Total: ~4.2GB (safe on 8GB GPU!)
 
 Original Paper: https://github.com/ZonglinL/TLBVFI
 """
@@ -60,7 +54,7 @@ except ImportError:
             torch.cuda.empty_cache()
 
 
-# Global model cache with FP16/FP32 distinction
+# Global model cache
 _MODEL_CACHE = {}
 
 
@@ -123,10 +117,6 @@ class TLBVFI_Interpolator_V2:
                 # 3 = 8x (9 frames total)
                 # 4 = 16x (17 frames total)
 
-                "use_fp16": ("BOOLEAN", {"default": True}),
-                # True = FP16 inference (2x memory reduction, recommended)
-                # False = FP32 inference (higher precision, more VRAM)
-
                 "enable_tf32": ("BOOLEAN", {"default": True}),
                 # True = TF32 on RTX 30/40 (4x faster matmul, no quality loss)
                 # False = Standard FP32 precision
@@ -169,19 +159,16 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 🎯 Core Features:
 - Aligned with original TLBVFI paper architecture
 - Memory-safe: No OOM on 8GB GPU with 4K video
-- FP16 support: 2x memory reduction
 - TF32 acceleration: 4x speedup on RTX 30/40
 - Adaptive padding: Handles arbitrary resolutions
 - Periodic cache clearing: Flat memory over time
 
 📊 Memory Profile (4K video):
-- FP32: ~5GB VRAM (may OOM on 8GB GPU)
-- FP16: ~4.2GB VRAM (safe on 8GB GPU)
+- TF32 (FP32 precision on tensor cores): ~5GB VRAM (safe on 8GB GPU with cpu_offload)
 - With cpu_offload: Only 2 frames in GPU at once
 
 ⚡ Performance (RTX 3090, 4K):
-- FP32: ~30s per frame pair
-- FP16 + TF32: ~8s per frame pair (4x faster!)
+- TF32 enabled: ~8s per frame pair (4x faster than legacy FP32)
 
 🎨 Quality vs Speed:
 - times_to_interpolate=0: Single frame (fastest, original paper)
@@ -191,13 +178,11 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 - flow_scale=0.5: Fast decode (paper default)
 - flow_scale=1.0: Quality decode
 
-🔧 Recommended Settings:
-- Normal use: FP16=True, TF32=True, steps=10, flow=0.5, cpu_offload=True
-- High quality: FP16=True, TF32=True, steps=20, flow=1.0, cpu_offload=True
-- Maximum speed: FP16=True, TF32=True, steps=10, flow=0.5, cpu_offload=True
+- Normal use: TF32=True, steps=10, flow=0.5, cpu_offload=True
+- High quality: TF32=True, steps=20, flow=1.0, cpu_offload=True
+- Maximum speed: TF32=True, steps=10, flow=0.5, cpu_offload=True
 
 ⚠️ Notes:
-- FP16 has negligible quality loss (<0.1dB PSNR)
 - TF32 is lossless (just faster computation)
 - cpu_offload recommended for long videos
 - Periodic cache clearing every 10 pairs
@@ -207,7 +192,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         self._frame_pair_count = 0  # For periodic cache clearing (RIFE pattern)
 
     def interpolate(self, prev_frame, next_frame, model_name,
-                   times_to_interpolate=0, use_fp16=True, enable_tf32=True,
+                   times_to_interpolate=0, enable_tf32=True,
                    sample_steps=10, flow_scale=0.5, cpu_offload=True, gpu_id=0):
         """
         Production-grade interpolation with memory safety.
@@ -217,7 +202,6 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             next_frame: (1, H, W, C) ComfyUI tensor in [0, 1]
             model_name: Model checkpoint (e.g., "vimeo_unet.pth")
             times_to_interpolate: 0=single, 1=2x, 2=4x, 3=8x, 4=16x
-            use_fp16: Enable FP16 inference (2x memory reduction)
             enable_tf32: Enable TF32 on RTX 30/40 (4x speed)
             sample_steps: Diffusion timesteps (10/20/50)
             flow_scale: Flow resolution (0.5=fast, 1.0=quality)
@@ -243,7 +227,6 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             print(f"\n{'='*80}")
             print(f"TLBVFI_V2: Configuration")
             print(f"  Model: {model_name}")
-            print(f"  Precision: {'FP16' if use_fp16 else 'FP32'}")
             print(f"  TF32: {'Enabled' if enable_tf32 else 'Disabled'}")
             print(f"  Sample steps: {sample_steps}")
             print(f"  Flow scale: {flow_scale}")
@@ -252,24 +235,15 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             print(f"{'='*80}\n")
 
         # Load model with caching
-        cache_key = f"{model_name}_{gpu_id}_{use_fp16}_{sample_steps}"
-
-        # Clear cache if precision changed (FP16 ↔ FP32 switch)
-        # This prevents using cached FP32 model when FP16 is requested
-        stale_keys = [k for k in _MODEL_CACHE.keys() if k.startswith(f"{model_name}_{gpu_id}_")]
-        for k in stale_keys:
-            if k != cache_key:
-                print(f"TLBVFI_V2: Clearing stale cache entry: {k}")
-                del _MODEL_CACHE[k]
-                soft_empty_cache()
+        cache_key = f"{model_name}_{gpu_id}_{sample_steps}"
 
         model = self._get_or_load_model(
-            cache_key, model_name, device, use_fp16, sample_steps
+            cache_key, model_name, device, sample_steps
         )
 
         # Preprocessing with adaptive padding (original paper pattern)
         prev_tensor, next_tensor, pad_info = self._preprocess_with_padding(
-            prev_frame, next_frame, device, use_fp16
+            prev_frame, next_frame, device
         )
 
         # Core interpolation
@@ -301,9 +275,9 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         return (result,)
 
-    def _get_or_load_model(self, cache_key, model_name, device, use_fp16, sample_steps):
+    def _get_or_load_model(self, cache_key, model_name, device, sample_steps):
         """
-        Load model with caching, FP16 support, and configurable timesteps.
+        Load model with caching and configurable timesteps.
         """
         global _MODEL_CACHE
 
@@ -322,34 +296,11 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         # Load model
         print(f"TLBVFI_V2: Loading model...")
         print(f"  Name: {model_name}")
-        print(f"  Precision: {'FP16' if use_fp16 else 'FP32'}")
         print(f"  Sample steps: {sample_steps}")
 
         print_memory_summary(device, "  Before load: ")
 
         model = load_tlbvfi_model(model_name, device, sample_steps=sample_steps)
-
-        # Convert to FP16 if requested
-        if use_fp16 and device.type == 'cuda':
-            print(f"  Converting model to FP16 using .convert_to_fp16() method...")
-
-            # Use TLBVFI's custom convert_to_fp16() method
-            # This properly handles VQGAN's nested submodules which .half() misses
-            # See LatentBrownianBridgeModel.py:57-92 for implementation details
-            model = model.convert_to_fp16()
-
-            # Verify conversion
-            sample_param = next(iter(model.parameters()))
-            print(f"  Verification: First parameter dtype = {sample_param.dtype}")
-
-            # Check critical submodules
-            if hasattr(model, 'vqgan'):
-                if hasattr(model.vqgan, 'encoder'):
-                    vqgan_param = next(iter(model.vqgan.encoder.parameters()))
-                    print(f"  VQGAN encoder dtype = {vqgan_param.dtype}")
-            if hasattr(model, 'denoise_fn'):
-                unet_param = next(iter(model.denoise_fn.parameters()))
-                print(f"  UNet denoise_fn dtype = {unet_param.dtype}")
 
         print_memory_summary(device, "  After load:  ")
 
@@ -358,7 +309,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         return model
 
-    def _preprocess_with_padding(self, prev_frame, next_frame, device, use_fp16):
+    def _preprocess_with_padding(self, prev_frame, next_frame, device):
         """
         Adaptive padding to satisfy model dimension requirements.
 
@@ -399,7 +350,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             print(f"  Adaptive padding: {h}x{w} → {h+pad_h}x{w+pad_w}")
 
         # Move to device and convert dtype in one operation
-        target_dtype = torch.float16 if (use_fp16 and device.type == 'cuda') else torch.float32
+        target_dtype = torch.float32
         prev_tensor = prev_tensor.to(device=device, dtype=target_dtype, non_blocking=True)
         next_tensor = next_tensor.to(device=device, dtype=target_dtype, non_blocking=True)
 
