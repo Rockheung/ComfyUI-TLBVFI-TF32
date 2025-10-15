@@ -472,8 +472,14 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         print(f"{'='*80}\n")
 
         with torch.no_grad():
-            # Core interpolation (original paper: model.sample())
-            mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
+            # Use autocast for automatic mixed precision management
+            if prev_tensor.dtype == torch.float16:
+                with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+                    # Core interpolation (original paper: model.sample())
+                    mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
+            else:
+                # Core interpolation (original paper: model.sample())
+                mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
 
             # Denormalize: [-1, 1] → [0, 1]
             mid_frame = (mid_frame + 1.0) / 2.0
@@ -560,9 +566,13 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                     print(f"  DEBUG: frame_a dtype={frame_a.dtype}, model dtype={model_dtype}")
                     print(f"  DEBUG: frame_a device={frame_a.device}, model device={next(iter(model.parameters())).device}")
 
-                # Interpolate
+                # Interpolate with autocast for FP16
                 with torch.no_grad():
-                    mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
+                    if frame_a.dtype == torch.float16:
+                        with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+                            mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
+                    else:
+                        mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
 
                 # Convert to ComfyUI format and transfer to CPU
                 mid_frame_comfy = to_comfy_format(mid_frame)
