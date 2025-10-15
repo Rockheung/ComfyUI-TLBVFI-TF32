@@ -56,11 +56,14 @@ class LatentBrownianBridgeModel(BrownianBridgeModel):
 
     def convert_to_fp16(self):
         """
-        Recursively converts all model components to FP16, including VQGAN submodules.
+        Recursively converts all model components to FP16, including VQGAN submodules and buffers.
 
         Standard model.half() doesn't properly convert VQGAN's nested submodules
         (encoder, decoder, quantize, etc.) because VQGAN is initialized separately
         with disabled_train wrapper. This method explicitly converts each submodule.
+
+        Additionally converts all float32 buffers (schedule buffers like m_t, variance_t)
+        which are explicitly registered as float32 in BrownianBridgeModel.register_schedule().
 
         Returns:
             self: The model instance for method chaining
@@ -88,6 +91,14 @@ class LatentBrownianBridgeModel(BrownianBridgeModel):
         if hasattr(self, 'cond_stage_model') and self.cond_stage_model is not None:
             if self.condition_key != 'first_stage':  # Don't double-convert VQGAN
                 self.cond_stage_model = self.cond_stage_model.half()
+
+        # Convert all float32 buffers to FP16
+        # This includes schedule buffers: m_t, m_tminus, variance_t, variance_tminus, etc.
+        # These are registered as float32 in BrownianBridgeModel.register_schedule()
+        # but need to be FP16 for proper dtype matching during forward pass
+        for name, buffer in self.named_buffers():
+            if buffer.dtype == torch.float32:
+                buffer.data = buffer.data.half()
 
         return self
 
