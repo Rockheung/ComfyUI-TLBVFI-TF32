@@ -331,14 +331,27 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         # Convert to FP16 if requested
         if use_fp16 and device.type == 'cuda':
-            # Use .to(dtype=torch.float16) for complete conversion of all submodules
-            # This is more reliable than .half() or custom convert_to_fp16()
-            model = model.to(dtype=torch.float16)
-            print(f"  Converted to FP16 using .to(dtype=torch.float16) (all modules)")
+            # Aggressive FP16 conversion: convert ALL parameters and buffers
+            print(f"  Converting model to FP16 (aggressive mode)...")
 
-            # Verify conversion worked
+            # Convert all parameters
+            for param in model.parameters():
+                param.data = param.data.to(torch.float16)
+
+            # Convert all buffers (includes running_mean, running_var, etc.)
+            for buffer in model.buffers():
+                buffer.data = buffer.data.to(torch.float16)
+
+            # Verify conversion
             sample_param = next(iter(model.parameters()))
-            print(f"  Verification: model dtype = {sample_param.dtype}")
+            print(f"  Verification: First parameter dtype = {sample_param.dtype}")
+
+            # Also verify a buffer if any exist
+            try:
+                sample_buffer = next(iter(model.buffers()))
+                print(f"  Verification: First buffer dtype = {sample_buffer.dtype}")
+            except StopIteration:
+                print(f"  No buffers found in model")
 
         print_memory_summary(device, "  After load:  ")
 
