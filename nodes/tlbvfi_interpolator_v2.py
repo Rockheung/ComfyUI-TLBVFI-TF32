@@ -229,6 +229,11 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             print(f"  Model: {model_name}")
             print(f"  TF32: {'Enabled' if enable_tf32 else 'Disabled'}")
             print(f"  Sample steps: {sample_steps}")
+            effective_flow_scale = max(flow_scale, 0.05)
+            if effective_flow_scale != flow_scale:
+                print(f"TLBVFI_V2: flow_scale={flow_scale} too low, clamping to {effective_flow_scale}")
+                flow_scale = effective_flow_scale
+
             print(f"  Flow scale: {flow_scale}")
             print(f"  CPU offload: {'Enabled' if cpu_offload else 'Disabled'}")
             print(f"  Device: {device}")
