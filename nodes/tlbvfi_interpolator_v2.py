@@ -331,27 +331,31 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         # Convert to FP16 if requested
         if use_fp16 and device.type == 'cuda':
-            # Aggressive FP16 conversion: convert ALL parameters and buffers
+            # Aggressive FP16 conversion: convert ALL parameters and floating-point buffers
             print(f"  Converting model to FP16 (aggressive mode)...")
 
             # Convert all parameters
             for param in model.parameters():
                 param.data = param.data.to(torch.float16)
 
-            # Convert all buffers (includes running_mean, running_var, etc.)
+            # Convert only floating-point buffers (skip integer indices!)
+            # Integer buffers like rel_pos_indices, position_ids must stay as Long/Int
+            buffers_converted = 0
+            buffers_skipped = 0
             for buffer in model.buffers():
-                buffer.data = buffer.data.to(torch.float16)
+                # Only convert float32 buffers, skip integer types
+                if buffer.dtype == torch.float32:
+                    buffer.data = buffer.data.to(torch.float16)
+                    buffers_converted += 1
+                else:
+                    # Skip integer buffers (Long, Int, etc.)
+                    buffers_skipped += 1
+
+            print(f"  Converted {buffers_converted} float buffers to FP16, skipped {buffers_skipped} integer buffers")
 
             # Verify conversion
             sample_param = next(iter(model.parameters()))
             print(f"  Verification: First parameter dtype = {sample_param.dtype}")
-
-            # Also verify a buffer if any exist
-            try:
-                sample_buffer = next(iter(model.buffers()))
-                print(f"  Verification: First buffer dtype = {sample_buffer.dtype}")
-            except StopIteration:
-                print(f"  No buffers found in model")
 
         print_memory_summary(device, "  After load:  ")
 
