@@ -462,8 +462,9 @@ class VQFlowNetInterface(VQFlowNet):
                 img0_down_ = F.interpolate(x_prev, scale_factor=scale, mode="bilinear", align_corners=False)
                 img1_down_ = F.interpolate(x_next, scale_factor=scale, mode="bilinear", align_corners=False)
                 _,_,h_,w_ = img0_down_.shape
-                img0_down = torch.zeros(b,c,h,w).to(img0_down_.device)
-                img1_down = torch.zeros(b,c,h,w).to(img1_down_.device)
+                # Match dtype with downscaled images for FP16 support
+                img0_down = torch.zeros(b,c,h,w, device=img0_down_.device, dtype=img0_down_.dtype)
+                img1_down = torch.zeros(b,c,h,w, device=img1_down_.device, dtype=img1_down_.dtype)
                 img0_down[:,:,:h_,:w_] = img0_down_
                 img1_down[:,:,:h_,:w_] = img1_down_
 
