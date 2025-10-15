@@ -474,12 +474,22 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         with torch.no_grad():
             # Use autocast for automatic mixed precision management
             if prev_tensor.dtype == torch.float16:
-                with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+                with torch.amp.autocast('cuda', enabled=True, dtype=torch.float16):
                     # Core interpolation (original paper: model.sample())
                     mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
             else:
                 # Core interpolation (original paper: model.sample())
                 mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
+
+            # FP16 Safety: Replace NaN/Inf with valid values before denormalization
+            # This prevents black frames when diffusion sampling produces invalid values
+            if torch.isnan(mid_frame).any() or torch.isinf(mid_frame).any():
+                print("  WARNING: NaN/Inf detected in model output, replacing with zeros")
+                mid_frame = torch.nan_to_num(mid_frame, nan=0.0, posinf=1.0, neginf=-1.0)
+
+            # Force clamp to expected range [-1, 1] BEFORE denormalization
+            # FP16 can produce values slightly outside this range due to precision limits
+            mid_frame = mid_frame.clamp(-1.0, 1.0)
 
             # Denormalize: [-1, 1] → [0, 1]
             mid_frame = (mid_frame + 1.0) / 2.0
@@ -569,10 +579,16 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 # Interpolate with autocast for FP16
                 with torch.no_grad():
                     if frame_a.dtype == torch.float16:
-                        with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+                        with torch.amp.autocast('cuda', enabled=True, dtype=torch.float16):
                             mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
                     else:
                         mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
+
+                # FP16 Safety: Replace NaN/Inf and clamp to [-1, 1]
+                if torch.isnan(mid_frame).any() or torch.isinf(mid_frame).any():
+                    print(f"  WARNING: NaN/Inf detected in iteration {iteration+1}, pair {i+1}")
+                    mid_frame = torch.nan_to_num(mid_frame, nan=0.0, posinf=1.0, neginf=-1.0)
+                mid_frame = mid_frame.clamp(-1.0, 1.0)
 
                 # Convert to ComfyUI format and transfer to CPU
                 mid_frame_comfy = to_comfy_format(mid_frame)
