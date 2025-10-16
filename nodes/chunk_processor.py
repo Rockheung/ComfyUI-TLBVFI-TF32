@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 # Use parent package relative import
 try:
-from ..utils import (
+    from ..utils import (
         enable_cudnn_benchmark,
         cleanup_memory,
         save_manifest,
