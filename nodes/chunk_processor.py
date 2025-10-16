@@ -22,34 +22,21 @@ from tqdm import tqdm
 
 # Use parent package relative import
 try:
-    from ..utils import (
-        load_tlbvfi_model,
-        enable_tf32_if_available,
+from ..utils import (
         enable_cudnn_benchmark,
         cleanup_memory,
-        get_memory_stats,
-        print_memory_summary,
-        create_session_id,
-        create_manifest,
         save_manifest,
-        load_manifest,
     )
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from utils import (
-        load_tlbvfi_model,
-        enable_tf32_if_available,
         enable_cudnn_benchmark,
         cleanup_memory,
-        get_memory_stats,
-        print_memory_summary,
-        create_session_id,
-        create_manifest,
         save_manifest,
-        load_manifest,
     )
 
 import folder_paths
+from .tlbvfi_interpolator_v2 import TLBVFI_Interpolator_V2
 
 
 def find_models(folder_type: str, extensions: list) -> list:
@@ -112,6 +99,10 @@ class TLBVFI_ChunkProcessor:
             "optional": {
                 "session_id": ("STRING", {"default": ""}),  # Auto-generate if empty
                 "save_debug_images": ("BOOLEAN", {"default": False}),  # Save PNG frames for debugging
+                "enable_tf32": ("BOOLEAN", {"default": True}),
+                "sample_steps": ([10, 20, 50], {"default": 10}),
+                "flow_scale": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
+                "cpu_offload": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -160,7 +151,9 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
 
     def process_all_chunks(self, images: torch.Tensor, model_name: str, times_to_interpolate: int,
                           fps: float, codec: str, crf: int, gpu_id: int,
-                          session_id: str = "", save_debug_images: bool = False):
+                          session_id: str = "", save_debug_images: bool = False,
+                          enable_tf32: bool = True, sample_steps: int = 10,
+                          flow_scale: float = 0.5, cpu_offload: bool = True):
         """
         Process all frame pairs automatically.
 
@@ -174,6 +167,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             gpu_id: CUDA device ID
             session_id: Session identifier (auto-generated if empty)
             save_debug_images: Save PNG frames for debugging
+            enable_tf32: Toggle TF32 acceleration (RTX 30/40)
+            sample_steps: Diffusion steps passed to Interpolator V2
+            flow_scale: Optical flow resolution scaling
+            cpu_offload: Offload intermediate frames to CPU after each step
 
         Returns:
             session_id: For VideoConcatenator
@@ -197,6 +194,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
         print(f"  Interpolation: {times_to_interpolate}x ({2**times_to_interpolate}x output frames)")
         print(f"  Output FPS: {fps}")
         print(f"  Codec: {codec} (CRF={crf})")
+        print(f"  Sample steps: {sample_steps}")
+        print(f"  Flow scale: {flow_scale}")
+        print(f"  TF32: {'Enabled' if enable_tf32 else 'Disabled'}")
+        print(f"  CPU offload: {'Enabled' if cpu_offload else 'Disabled'}")
         print(f"{'='*80}\n")
 
         # Create session
@@ -209,15 +210,13 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
 
         print(f"TLBVFI_ChunkProcessor: Session directory: {session_dir}\n")
 
-        # Load model ONCE
-        print(f"TLBVFI_ChunkProcessor: Loading model {model_name}")
-        print_memory_summary(device, "Before model load: ")
-
-        model = load_tlbvfi_model(model_name, device)
-        enable_tf32_if_available(device)
+        # Load model via production-grade interpolator (cached)
+        print(f"TLBVFI_ChunkProcessor: Loading model {model_name} (sample_steps={sample_steps})")
+        interpolator = TLBVFI_Interpolator_V2()
+        cache_key = f"{model_name}_{gpu_id}_{sample_steps}"
+        interpolator._get_or_load_model(cache_key, model_name, device, sample_steps)
         enable_cudnn_benchmark(device)
 
-        print_memory_summary(device, "After model load: ")
         print()
 
         # Process all pairs
@@ -234,6 +233,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                 'codec': codec,
                 'crf': crf,
                 'resolution': f"{H}x{W}",
+                'sample_steps': sample_steps,
+                'flow_scale': flow_scale,
+                'enable_tf32': enable_tf32,
+                'cpu_offload': cpu_offload,
             }
         }
 
@@ -252,7 +255,18 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
 
             # Interpolate
             interpolated_frames = self._interpolate_pair(
-                frame_pair, model, times_to_interpolate, device, is_last_pair, save_debug_images, pair_idx
+                frame_pair,
+                interpolator,
+                model_name,
+                times_to_interpolate,
+                enable_tf32,
+                sample_steps,
+                flow_scale,
+                cpu_offload,
+                gpu_id,
+                is_last_pair,
+                save_debug_images,
+                pair_idx
             )
 
             # Save as video chunk
@@ -285,51 +299,44 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
 
         return (session_id,)
 
-    def _interpolate_pair(self, frame_pair: torch.Tensor, model, times_to_interpolate: int,
-                         device, is_last_pair: bool, save_debug_images: bool, pair_idx: int):
+    def _interpolate_pair(self, frame_pair: torch.Tensor,
+                         interpolator: TLBVFI_Interpolator_V2,
+                         model_name: str,
+                         times_to_interpolate: int,
+                         enable_tf32: bool,
+                         sample_steps: int,
+                         flow_scale: float,
+                         cpu_offload: bool,
+                         gpu_id: int,
+                         is_last_pair: bool,
+                         save_debug_images: bool,
+                         pair_idx: int) -> torch.Tensor:
         """
-        Interpolate a single frame pair.
+        Interpolate a single frame pair using the production-grade V2 logic.
 
         Returns:
-            interpolated_frames: (N, H, W, C) tensor
+            interpolated_frames: (N, H, W, C) tensor on CPU
         """
-        # Preprocessing: (2, H, W, C) -> (2, C, H, W), normalize to [-1, 1]
-        image_tensors = frame_pair.permute(0, 3, 1, 2).float()
-        image_tensors = (image_tensors * 2.0) - 1.0
+        prev_frame = frame_pair[0:1]
+        next_frame = frame_pair[1:2]
 
-        # Transfer to GPU
-        frame1 = image_tensors[0].unsqueeze(0).to(device, non_blocking=True)
-        frame2 = image_tensors[1].unsqueeze(0).to(device, non_blocking=True)
+        interpolated_tuple = interpolator.interpolate(
+            prev_frame,
+            next_frame,
+            model_name,
+            times_to_interpolate=times_to_interpolate,
+            enable_tf32=enable_tf32,
+            sample_steps=sample_steps,
+            flow_scale=flow_scale,
+            cpu_offload=cpu_offload,
+            gpu_id=gpu_id,
+        )
 
-        # Interpolation loop
-        current_frames = [frame1, frame2]
-        for iteration in range(times_to_interpolate):
-            temp_frames = [current_frames[0]]
-            for j in range(len(current_frames) - 1):
-                with torch.no_grad():
-                    mid_frame = model.sample(current_frames[j], current_frames[j+1], disable_progress=True)
-                temp_frames.extend([mid_frame, current_frames[j+1]])
-            current_frames = temp_frames
+        frames = interpolated_tuple[0].to('cpu', non_blocking=True)
 
-            num_frames = len(current_frames)
-            print(f"  Iteration {iteration+1}/{times_to_interpolate}: Generated {num_frames} frames")
+        if not is_last_pair:
+            frames = frames[:-1]
 
-        # Post-processing: back to ComfyUI format (N, H, W, C)
-        # Exclude last frame unless it's the last pair of the video
-        frames_to_process = current_frames if is_last_pair else current_frames[:-1]
-
-        processed_frames = []
-        for frame in frames_to_process:
-            # Move to CPU, denormalize
-            frame_cpu = frame.squeeze(0).to('cpu', non_blocking=True)
-            frame_cpu = (frame_cpu + 1.0) / 2.0
-            frame_cpu = frame_cpu.clamp(0, 1)
-            frame_cpu = frame_cpu.permute(1, 2, 0)  # (C, H, W) -> (H, W, C)
-            processed_frames.append(frame_cpu)
-
-        result = torch.stack(processed_frames, dim=0)  # (N, H, W, C)
-
-        # Optional: Save frames as PNG images
         if save_debug_images:
             from PIL import Image
             import numpy as np
@@ -339,23 +346,21 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             save_dir = os.path.join(output_dir, f"tlbvfi_frames_{timestamp}", f"pair_{pair_idx:04d}")
             os.makedirs(save_dir, exist_ok=True)
 
-            for idx, frame_tensor in enumerate(processed_frames):
-                # Convert to numpy uint8
+            for idx, frame_tensor in enumerate(frames):
                 frame_np = (frame_tensor.numpy() * 255).clip(0, 255).astype(np.uint8)
                 img = Image.fromarray(frame_np)
                 img_path = os.path.join(save_dir, f"frame_{idx:04d}.png")
                 img.save(img_path)
 
-            print(f"  Saved {len(processed_frames)} frames to {save_dir}")
+            print(f"  Saved {frames.shape[0]} frames to {save_dir}")
 
-        # Memory cleanup
-        del current_frames, temp_frames, frame1, frame2, image_tensors, processed_frames
+        frames = frames.contiguous()
 
-        print(f"  Generated {result.shape[0]} frames from 2 input frames")
+        print(f"  Generated {frames.shape[0]} frames from 2 input frames")
         if not is_last_pair:
             print(f"  (Excluded end frame to avoid duplication in concat)")
 
-        return result
+        return frames
 
     def _save_chunk_as_video(self, frames: torch.Tensor, chunk_path: str,
                             fps: float, codec: str, crf: int, ffmpeg_path: str):
