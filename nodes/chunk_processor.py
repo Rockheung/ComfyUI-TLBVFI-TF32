@@ -38,6 +38,21 @@ except ImportError:
 import folder_paths
 from .tlbvfi_interpolator_v2 import TLBVFI_Interpolator_V2
 
+try:
+    from comfy.utils import should_stop_processing as comfy_should_stop_processing
+except ImportError:
+    comfy_should_stop_processing = None
+
+try:
+    import execution  # type: ignore
+except ImportError:
+    execution = None
+
+try:
+    from comfy.utils import should_stop_processing as comfy_should_stop_processing
+except ImportError:
+    comfy_should_stop_processing = None
+
 
 def find_models(folder_type: str, extensions: list) -> list:
     """Find all model files with given extensions in the specified folder type."""
@@ -76,6 +91,42 @@ class TLBVFI_ChunkProcessor:
     Automatically iterates through all frame pairs, interpolates them,
     and saves video-encoded chunks progressively to disk.
     """
+
+    @staticmethod
+    def _stop_requested() -> bool:
+        """
+        Detect whether ComfyUI requested the current prompt to stop.
+
+        Supports both comfy.utils.should_stop_processing (latest builds)
+        and legacy execution module fallbacks. Returns False if no hook
+        is available or if running outside ComfyUI.
+        """
+        if comfy_should_stop_processing:
+            try:
+                if comfy_should_stop_processing():
+                    return True
+            except Exception:
+                # Ignore hook errors and try fallbacks
+                pass
+
+        if execution is not None:
+            for attr_name in ("should_stop_processing", "should_stop"):
+                checker = getattr(execution, attr_name, None)
+                if callable(checker):
+                    try:
+                        if checker():
+                            return True
+                    except Exception:
+                        pass
+            stop_flag = getattr(execution, "stop_processing", None)
+            if hasattr(stop_flag, "is_set"):
+                try:
+                    if stop_flag.is_set():
+                        return True
+                except Exception:
+                    pass
+
+        return False
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -240,7 +291,14 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             }
         }
 
-        for pair_idx in tqdm(range(total_pairs), desc="Processing frame pairs"):
+        interrupted = False
+        progress_bar = tqdm(range(total_pairs), desc="Processing frame pairs")
+        for pair_idx in progress_bar:
+            if self._stop_requested():
+                interrupted = True
+                print("\nTLBVFI_ChunkProcessor: Stop requested - aborting before processing remaining pairs.")
+                break
+
             is_last_pair = (pair_idx == total_pairs - 1)
 
             print(f"\n{'-'*80}")
@@ -290,11 +348,28 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             del interpolated_frames, frame_pair
             cleanup_memory(device, force_gc=True)
 
+            if self._stop_requested():
+                interrupted = True
+                print("\nTLBVFI_ChunkProcessor: Stop requested - ending after current chunk.")
+                break
+
+        progress_bar.close()
+
+        manifest['metadata']['completed_pairs'] = len(manifest['chunks'])
+        manifest['metadata']['status'] = 'interrupted' if interrupted else 'completed'
+        save_manifest(manifest, session_dir)
+
+        processed_pairs = manifest['metadata']['completed_pairs']
         print(f"\n{'='*80}")
-        print(f"TLBVFI_ChunkProcessor: Complete!")
-        print(f"  Processed {total_pairs} pairs")
-        print(f"  Output: {session_dir}")
-        print(f"  Session ID: {session_id}")
+        if interrupted:
+            print(f"TLBVFI_ChunkProcessor: Stopped early at pair {processed_pairs}/{total_pairs}.")
+            print(f"  Partial chunks saved to: {session_dir}")
+            print(f"  Session ID (resume/concat): {session_id}")
+        else:
+            print(f"TLBVFI_ChunkProcessor: Complete!")
+            print(f"  Processed {processed_pairs} pairs")
+            print(f"  Output: {session_dir}")
+            print(f"  Session ID: {session_id}")
         print(f"{'='*80}\n")
 
         return (session_id,)
