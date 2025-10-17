@@ -402,10 +402,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             gpu_id=gpu_id,
         )
 
-        frames = interpolated_tuple[0].to('cpu', non_blocking=True)
+        frames = interpolated_tuple[0].to('cpu').contiguous()
 
         if not is_last_pair:
-            frames = frames[:-1]
+            frames = frames[:-1].contiguous()
 
         if save_debug_images:
             from PIL import Image
@@ -423,8 +423,6 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                 img.save(img_path)
 
             print(f"  Saved {frames.shape[0]} frames to {save_dir}")
-
-        frames = frames.contiguous()
 
         print(f"  Generated {frames.shape[0]} frames from 2 input frames")
         if not is_last_pair:
@@ -448,9 +446,6 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
         import numpy as np
 
         num_frames, H, W, C = frames.shape
-
-        # Convert to uint8
-        frames_np = (frames.numpy() * 255).clip(0, 255).astype(np.uint8)
 
         # Determine pixel format
         pix_fmt = 'yuv420p' if codec in ['h264_nvenc', 'hevc_nvenc', 'libx264', 'libx265'] else 'yuv420p'
@@ -486,8 +481,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             stderr=subprocess.PIPE
         )
 
-        # Write frames
-        process.stdin.write(frames_np.tobytes())
+        # Stream frames sequentially to keep memory footprint low
+        for frame_tensor in frames:
+            frame_np = (frame_tensor.numpy() * 255).clip(0, 255).astype(np.uint8)
+            process.stdin.write(frame_np.tobytes())
         process.stdin.close()
 
         stdout, stderr = process.communicate()
