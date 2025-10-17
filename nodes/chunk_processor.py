@@ -48,11 +48,6 @@ try:
 except ImportError:
     execution = None
 
-try:
-    from comfy.utils import should_stop_processing as comfy_should_stop_processing
-except ImportError:
-    comfy_should_stop_processing = None
-
 
 def find_models(folder_type: str, extensions: list) -> list:
     """Find all model files with given extensions in the specified folder type."""
