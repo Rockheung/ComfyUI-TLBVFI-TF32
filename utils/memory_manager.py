@@ -8,6 +8,22 @@ import torch
 import gc
 
 
+def configure_cuda_allocator():
+    """
+    Enable safer allocator settings to avoid CUDA Async allocator assertions.
+
+    Uses PyTorch's expandable segments when available to reduce fragmentation.
+    """
+    if not torch.cuda.is_available():
+        return
+
+    try:
+        torch.cuda.memory._set_allocator_settings("expandable_segments:True")
+    except (AttributeError, RuntimeError):
+        # Older PyTorch versions may not expose this API; ignore silently.
+        pass
+
+
 def cleanup_memory(device: torch.device, force_gc: bool = True):
     """
     Clean up GPU and CPU memory.

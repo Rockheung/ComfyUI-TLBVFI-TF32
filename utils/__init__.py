@@ -11,6 +11,7 @@ from .model_loader import (
 )
 
 from .memory_manager import (
+    configure_cuda_allocator,
     cleanup_memory,
     get_memory_stats,
     check_memory_available,
@@ -36,6 +37,7 @@ __all__ = [
     'enable_cudnn_benchmark',
     'dict2namespace',
     # Memory management
+    'configure_cuda_allocator',
     'cleanup_memory',
     'get_memory_stats',
     'check_memory_available',

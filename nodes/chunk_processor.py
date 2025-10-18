@@ -24,6 +24,7 @@ from tqdm import tqdm
 try:
     from ..utils import (
         enable_cudnn_benchmark,
+        configure_cuda_allocator,
         cleanup_memory,
         save_manifest,
     )
@@ -31,6 +32,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from utils import (
         enable_cudnn_benchmark,
+        configure_cuda_allocator,
         cleanup_memory,
         save_manifest,
     )
@@ -245,6 +247,9 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
         print(f"  TF32: {'Enabled' if enable_tf32 else 'Disabled'}")
         print(f"  CPU offload: {'Enabled' if cpu_offload else 'Disabled'}")
         print(f"{'='*80}\n")
+
+        # Configure CUDA allocator for safer long-running allocations
+        configure_cuda_allocator()
 
         # Create session
         if not session_id:

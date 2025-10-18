@@ -493,6 +493,11 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             to_comfy_format(next_tensor)
         ]
 
+        if cpu_offload:
+            # Release the original GPU tensors once converted
+            del prev_tensor, next_tensor
+            torch.cuda.empty_cache()
+
         # Recursive bisection: each iteration doubles the frame count
         for iteration in range(times_to_interpolate):
             new_frames_list = [frames_list[0]]  # Start with first frame
