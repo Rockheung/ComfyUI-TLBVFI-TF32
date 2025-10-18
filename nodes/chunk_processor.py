@@ -146,7 +146,13 @@ class TLBVFI_ChunkProcessor:
                 "session_id": ("STRING", {"default": ""}),  # Auto-generate if empty
                 "save_debug_images": ("BOOLEAN", {"default": False}),  # Save PNG frames for debugging
                 "enable_tf32": ("BOOLEAN", {"default": True}),
-                "sample_steps": ([10, 20, 50], {"default": 10}),
+                "sample_steps": ("INT", {
+                    "default": 10,
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "display": "slider"
+                }),
                 "flow_scale": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
                 "cpu_offload": ("BOOLEAN", {"default": True}),
             }

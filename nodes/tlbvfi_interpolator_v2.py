@@ -121,7 +121,14 @@ class TLBVFI_Interpolator_V2:
                 # True = TF32 on RTX 30/40 (4x faster matmul, no quality loss)
                 # False = Standard FP32 precision
 
-                "sample_steps": ([10, 20, 50], {"default": 10}),
+                "sample_steps": ("INT", {
+                    "default": 10,
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "display": "slider"
+                }),
+                # 1-9 = Turbo preview (minimal diffusion steps)
                 # 10 = Fast (paper default, 10 denoising steps)
                 # 20 = Balanced (better quality, 2x slower)
                 # 50 = High quality (best quality, 5x slower)
@@ -173,6 +180,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 🎨 Quality vs Speed:
 - times_to_interpolate=0: Single frame (fastest, original paper)
 - times_to_interpolate=1-4: Recursive bisection (2x/4x/8x/16x slower)
+- sample_steps=1-9: Turbo preview (light diffusion, lowest quality)
 - sample_steps=10: Fast (paper default)
 - sample_steps=20/50: Higher quality
 - flow_scale=0.5: Fast decode (paper default)
