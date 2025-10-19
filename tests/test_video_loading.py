@@ -238,6 +238,7 @@ class TestMultipleResolutions:
         ("vfi_test_480p.mp4", (480, 854)),
         ("vfi_test_720p.mp4", (720, 1280)),
         ("vfi_test_1080p.mp4", (1080, 1920)),
+        ("vfi_test_4K.webm", (2160, 3840)),
     ])
     def test_load_different_resolutions(self, test_videos_dir, video_name, expected_resolution):
         """Test loading videos of different resolutions."""
