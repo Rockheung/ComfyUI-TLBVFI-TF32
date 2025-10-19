@@ -1,18 +1,138 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "TLBVFI"
-description = "wrapper for the TLB-VFI: Temporal-Aware Latent Brownian Bridge Diffusion for Video Frame Interpolation project"
+name = "comfyui-tlbvfi-tf32"
 version = "0.2.24"
-license = {file = "LICENSE"}
-dependencies = ["pytorch_lightning", "cupy-cuda11x", "omegaconf", "timm"]
+description = "TF32-optimized TLB-VFI (Temporal-Aware Latent Brownian Bridge Diffusion) for Video Frame Interpolation in ComfyUI"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Rockheung", email = "rockheung@users.noreply.github.com"}
+]
+keywords = [
+    "comfyui",
+    "video-frame-interpolation",
+    "tlbvfi",
+    "tf32",
+    "gpu-acceleration",
+    "diffusion-model"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Runtime dependencies
+dependencies = [
+    "pytorch-lightning",
+    "omegaconf",
+    "timm",
+]
+
+# Optional dependency groups
+[project.optional-dependencies]
+# CUDA 12.x support (required for RTX 30/40 series GPUs)
+cuda = [
+    "cupy-cuda12x",
+]
+# Development dependencies
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "opencv-python>=4.0.0",  # For video loading tests
+]
+# Test dependencies
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "opencv-python>=4.0.0",
+]
 
 [project.urls]
-Repository = "https://github.com/BobRandomNumber/ComfyUI-TLBVFI"
-#  Used by Comfy Registry https://registry.comfy.org
+Homepage = "https://github.com/Rockheung/ComfyUI-TLBVFI-TF32"
+Repository = "https://github.com/Rockheung/ComfyUI-TLBVFI-TF32"
+Issues = "https://github.com/Rockheung/ComfyUI-TLBVFI-TF32/issues"
+Documentation = "https://github.com/Rockheung/ComfyUI-TLBVFI-TF32#readme"
 
+# ComfyUI Registry metadata
 [tool.comfy]
-PublisherId = "bobrandomnumber"
-DisplayName = "ComfyUI-TLBVFI"
+PublisherId = "rockheung"
+DisplayName = "ComfyUI-TLBVFI-TF32"
 Icon = ""
 includes = []
 
+# Hatch build configuration
+[tool.hatch.build.targets.wheel]
+packages = [
+    "nodes",
+    "utils",
+]
 
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]
+markers = [
+    "unit: Unit tests for individual components",
+    "integration: Integration tests for node workflows",
+    "slow: Tests that take longer to run",
+    "requires_gpu: Tests that require CUDA GPU",
+    "requires_model: Tests that require downloaded model files",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["nodes", "utils"]
+omit = [
+    "tests/*",
+    "examples/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+# Ruff configuration (modern Python linter)
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py

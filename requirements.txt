@@ -1,8 +1,20 @@
+# ComfyUI-TLBVFI-TF32 Dependencies
+#
+# For modern Python package management, use:
+#   uv pip install .
+#   uv pip install -e ".[dev]"  # for development
+#
+# For traditional pip:
+#   pip install -r requirements.txt
+
+# Runtime dependencies
 pytorch-lightning
 cupy-cuda12x
 omegaconf
 timm
 
-# Development dependencies
-pytest>=8.0.0
-pytest-cov>=4.0.0
+# Development dependencies (optional)
+# Uncomment for development/testing:
+# pytest>=8.0.0
+# pytest-cov>=4.0.0
+# opencv-python>=4.0.0

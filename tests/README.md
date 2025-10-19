@@ -15,6 +15,25 @@ ComfyUI-TLBVFI-TF32 테스트 시스템 가이드
 
 ### 기본 설정
 
+#### Option A: uv 사용 (권장 - 빠르고 현대적)
+
+```bash
+# 1. 레포지토리 클론
+git clone https://github.com/Rockheung/ComfyUI-TLBVFI-TF32.git
+cd ComfyUI-TLBVFI-TF32
+
+# 2. uv 설치 (미설치 시)
+# https://docs.astral.sh/uv/getting-started/installation/
+
+# 3. 의존성 설치
+uv sync --all-extras
+
+# 4. 테스트 실행
+uv run pytest tests/ -v
+```
+
+#### Option B: pip 사용 (전통적 방식)
+
 ```bash
 # 1. 레포지토리 클론
 git clone https://github.com/Rockheung/ComfyUI-TLBVFI-TF32.git
@@ -22,6 +41,8 @@ cd ComfyUI-TLBVFI-TF32
 
 # 2. 의존성 설치
 pip install -r requirements.txt
+# 또는
+pip install ".[dev]"
 
 # 3. 테스트 실행
 pytest tests/ -v

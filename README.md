@@ -62,12 +62,38 @@ git clone https://github.com/Rockheung/ComfyUI-TLBVFI-TF32.git
 
 ### Step 2: Install Dependencies
 
+Choose one of the following installation methods:
+
+#### Option A: Using uv (Recommended - Fast & Modern)
+
+```bash
+# Navigate into the newly created custom node directory
+cd ComfyUI-TLBVFI-TF32/
+
+# Install uv if not already installed
+# Visit: https://docs.astral.sh/uv/getting-started/installation/
+
+# Install dependencies (with CUDA support for GPU)
+uv sync --extra cuda
+
+# Or for development with testing tools
+uv sync --extra cuda --extra dev
+```
+
+#### Option B: Using pip (Traditional)
+
 ```bash
 # Navigate into the newly created custom node directory
 cd ComfyUI-TLBVFI-TF32/
 
 # Install required packages
 pip install -r requirements.txt
+
+# Or install from pyproject.toml (with CUDA support)
+pip install ".[cuda]"
+
+# For development with testing tools
+pip install ".[cuda,dev]"
 ```
 
 ### Step 3: Download the Pre-trained Model
