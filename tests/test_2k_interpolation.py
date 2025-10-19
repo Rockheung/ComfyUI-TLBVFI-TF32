@@ -1,0 +1,233 @@
+"""
+Test 2K (1440p) video frame interpolation on GPU.
+
+This test verifies that 2K resolution interpolation works on RTX 4090 24GB,
+providing a practical resolution between 1080p and 4K.
+
+This test requires:
+- CUDA GPU (RTX 4090)
+- Model file: vimeo_unet.pth in ComfyUI/models/interpolation/
+- Test video: vfi_test_1440p.mp4 in examples/
+
+Run with:
+    pytest tests/test_2k_interpolation.py -v -s
+    # or
+    uv run pytest tests/test_2k_interpolation.py -v -s
+"""
+
+import pytest
+import torch
+from pathlib import Path
+
+
+pytestmark = [
+    pytest.mark.requires_gpu,
+    pytest.mark.requires_model,
+    pytest.mark.slow,
+]
+
+
+@pytest.fixture
+def test_2k_video():
+    """Get 2K (1440p) test video path."""
+    video_path = Path(__file__).parent.parent / "examples" / "vfi_test_1440p.mp4"
+    if not video_path.exists():
+        pytest.skip(f"2K test video not found: {video_path}")
+    return video_path
+
+
+@pytest.fixture
+def skip_if_no_gpu():
+    """Skip test if no GPU available."""
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA GPU not available")
+
+    print(f"\n[OK] GPU available: {torch.cuda.get_device_name(0)}")
+    print(f"   CUDA version: {torch.version.cuda}")
+
+
+class Test2KInterpolation:
+    """Test 2K (1440p) video frame interpolation."""
+
+    def test_load_2k_video_frames(self, test_2k_video, skip_if_no_gpu):
+        """Test loading 2K video frames with OpenCV."""
+        try:
+            import cv2
+        except ImportError:
+            pytest.skip("opencv-python not installed")
+
+        # Load video
+        cap = cv2.VideoCapture(str(test_2k_video))
+        assert cap.isOpened(), f"Failed to open {test_2k_video}"
+
+        # Get video info
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        print(f"\n[VIDEO] Video Info:")
+        print(f"   Resolution: {width}x{height}")
+        print(f"   FPS: {fps}")
+        print(f"   Total frames: {frame_count}")
+
+        assert width == 2560, f"Expected 2K width 2560, got {width}"
+        assert height == 1440, f"Expected 2K height 1440, got {height}"
+
+        # Load first 2 frames for interpolation test
+        ret1, frame1 = cap.read()
+        ret2, frame2 = cap.read()
+        cap.release()
+
+        assert ret1 and ret2, "Failed to read first 2 frames"
+        assert frame1.shape == (1440, 2560, 3)
+        assert frame2.shape == (1440, 2560, 3)
+
+        print(f"[OK] Loaded 2 frames successfully")
+
+    def test_interpolate_2k_frames(self, test_2k_video, skip_if_no_gpu):
+        """Test actual 2K frame interpolation with TLBVFI model."""
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            pytest.skip("opencv-python not installed")
+
+        from nodes.tlbvfi_interpolator_v2 import TLBVFI_Interpolator_V2
+
+        # Load first 2 frames
+        cap = cv2.VideoCapture(str(test_2k_video))
+        ret1, frame1_bgr = cap.read()
+        ret2, frame2_bgr = cap.read()
+        cap.release()
+
+        assert ret1 and ret2
+
+        # Convert to ComfyUI format: BGR uint8 -> RGB float32
+        frame1_rgb = cv2.cvtColor(frame1_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        frame2_rgb = cv2.cvtColor(frame2_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+
+        # Add batch dimension: (H,W,C) -> (1,H,W,C)
+        frame1_batch = torch.from_numpy(np.expand_dims(frame1_rgb, axis=0))
+        frame2_batch = torch.from_numpy(np.expand_dims(frame2_rgb, axis=0))
+
+        print(f"\n[FRAMES] Input frames shape: {frame1_batch.shape}")
+
+        # Initialize interpolator
+        interpolator = TLBVFI_Interpolator_V2()
+
+        # Run interpolation (1x = 1 intermediate frame)
+        print(f"[START] Starting 2K frame interpolation...")
+        print(f"   This should complete in 10-20 seconds on RTX 4090...")
+
+        try:
+            result = interpolator.interpolate(
+                prev_frame=frame1_batch,
+                next_frame=frame2_batch,
+                times_to_interpolate=1,  # 1x = 1 intermediate frame
+                model_name="vimeo_unet.pth",
+                sample_steps=10,
+                enable_tf32=True,  # RTX 30/40 optimization
+                flow_scale=0.5,
+                cpu_offload=False,  # Keep on GPU
+                gpu_id=0
+            )
+
+            # Result is a tuple: (interpolated_frames,)
+            interpolated_frames = result[0]
+
+            print(f"\n[OK] Interpolation successful!")
+            print(f"   Output shape: {interpolated_frames.shape}")
+            print(f"   Expected: (3, 1440, 2560, 3)")  # 3 frames: prev, interpolated, next
+
+            # Verify output
+            assert interpolated_frames.shape == (3, 1440, 2560, 3), \
+                f"Expected (3, 1440, 2560, 3), got {interpolated_frames.shape}"
+            assert interpolated_frames.dtype == torch.float32
+            assert 0.0 <= interpolated_frames.min() <= 1.0
+            assert 0.0 <= interpolated_frames.max() <= 1.0
+
+            # Check GPU memory usage
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+                memory_reserved = torch.cuda.memory_reserved() / 1024**3  # GB
+                print(f"\n[MEMORY] GPU Memory:")
+                print(f"   Allocated: {memory_allocated:.2f} GB")
+                print(f"   Reserved: {memory_reserved:.2f} GB")
+
+            print(f"\n[PASS] 2K interpolation test PASSED!")
+
+        except FileNotFoundError as e:
+            if "vimeo_unet.pth" in str(e):
+                pytest.skip("Model file vimeo_unet.pth not found. Download from https://huggingface.co/ucfzl/TLBVFI/tree/main")
+            raise
+
+        except Exception as e:
+            print(f"\n[ERROR] Interpolation failed: {e}")
+            raise
+
+
+class Test2KPerformance:
+    """Test 2K interpolation performance metrics."""
+
+    def test_2k_interpolation_speed(self, test_2k_video, skip_if_no_gpu):
+        """Measure 2K interpolation performance on RTX 4090."""
+        import time
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            pytest.skip("opencv-python not installed")
+
+        from nodes.tlbvfi_interpolator_v2 import TLBVFI_Interpolator_V2
+
+        # Load frames
+        cap = cv2.VideoCapture(str(test_2k_video))
+        ret1, frame1_bgr = cap.read()
+        ret2, frame2_bgr = cap.read()
+        cap.release()
+
+        # Convert to ComfyUI format
+        frame1_rgb = cv2.cvtColor(frame1_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        frame2_rgb = cv2.cvtColor(frame2_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        frame1_batch = torch.from_numpy(np.expand_dims(frame1_rgb, axis=0))
+        frame2_batch = torch.from_numpy(np.expand_dims(frame2_rgb, axis=0))
+
+        interpolator = TLBVFI_Interpolator_V2()
+
+        # Warmup run
+        print(f"\n[WARMUP] Warmup run...")
+        try:
+            _ = interpolator.interpolate(
+                frame1_batch, frame2_batch, times_to_interpolate=1,
+                model_name="vimeo_unet.pth", sample_steps=10,
+                enable_tf32=True, flow_scale=0.5, cpu_offload=False, gpu_id=0
+            )
+        except FileNotFoundError:
+            pytest.skip("Model file not found")
+
+        # Timed run
+        print(f"\n[PERF] Performance test...")
+        start_time = time.time()
+
+        result = interpolator.interpolate(
+            frame1_batch, frame2_batch, times_to_interpolate=1,
+            model_name="vimeo_unet.pth", sample_steps=10,
+            enable_tf32=True, flow_scale=0.5, cpu_offload=False, gpu_id=0
+        )
+
+        elapsed_time = time.time() - start_time
+
+        print(f"\n[RESULTS] Performance Results:")
+        print(f"   Resolution: 2K (2560x1440)")
+        print(f"   Time: {elapsed_time:.2f} seconds")
+        print(f"   FPS: {1.0/elapsed_time:.2f}")
+
+        # RTX 4090 should handle 2K in reasonable time
+        if elapsed_time < 20:
+            print(f"   [OK] Good performance (< 20s)")
+        else:
+            print(f"   [WARN] Slow performance (> 20s)")
+
+        # Assert reasonable performance
+        assert elapsed_time < 60, f"2K interpolation too slow: {elapsed_time:.2f}s"
