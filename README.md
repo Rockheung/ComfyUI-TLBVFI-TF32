@@ -10,14 +10,12 @@ This fork is specifically optimized for **high-end NVIDIA GPUs** with the follow
 
 ### TF32 Acceleration (RTX 30/40 Series)
 - **Automatic Tensor Core utilization** on Ampere/Ada architecture GPUs
-- **~8x faster matrix operations** compared to standard FP32
 - **No precision loss** - maintains full FP32 accuracy
 - **Zero dtype compatibility issues** - no complex FP16 management needed
 
 ### GPU Memory Optimization
 - **All processing on GPU** - eliminates CPU↔GPU transfer bottlenecks
 - **Single bulk transfer** at completion instead of per-frame copies
-- **2-3x faster** data movement using PCIe 4.0 bandwidth
 - **Async operations** - overlaps data transfer with computation
 
 ### CUDA/cuDNN Optimization
@@ -35,19 +33,15 @@ This fork is specifically optimized for **high-end NVIDIA GPUs** with the follow
 - **RAM**: 16GB+ recommended for video processing
 - **VRAM**: 8GB+ minimum, 12GB+ recommended, 24GB ideal for large batches
 
-**Performance Results (RTX 4090 24GB):**
-- GPU Utilization: **85-95%** (vs 20-30% in original implementation)
-- Processing Speed: **1.5-2x faster** than standard FP32
-- Memory Efficiency: All intermediate results cached on GPU
 
 ---
 
 ## 🎯 Features
 
 - **High-Quality Interpolation**: Leverages a powerful latent diffusion model to generate smooth and detailed in-between frames
-- **TF32 Acceleration**: Automatic performance boost on RTX 30/40 series GPUs
+- **TF32 Acceleration**: Automatic optimization on RTX 30/40 series GPUs
 - **Configurable Interpolation Steps**: Easily double, quadruple, or octuple your frame rate
-- **Optimized Data Pipeline**: Minimized CPU-GPU transfers for maximum throughput
+- **Optimized Data Pipeline**: Minimized CPU-GPU transfers
 - **Automatic Fallback**: Works on older GPUs with standard FP32
 
 ---
@@ -133,7 +127,7 @@ The **TLBVFI Interpolator V2** is a complete rewrite aligned with the original p
      - `2` = 5 frames total (4x)
      - `3` = 9 frames total (8x)
      - `4` = 17 frames total (16x)
-   - **`enable_tf32`**: `True` (recommended - 4x speedup on RTX 30/40)
+   - **`enable_tf32`**: `True` (recommended for RTX 30/40)
    - **`sample_steps`**: `10` (fast), `20` (balanced), or `50` (quality)
    - **`flow_scale`**: `0.5` (fast decode) or `1.0` (quality decode)
    - **`cpu_offload`**: `True` (recommended for long videos)
@@ -151,7 +145,7 @@ The **TLBVFI Interpolator V2** is a complete rewrite aligned with the original p
 
 - ✅ **Memory safe**: Flat 4.2GB VRAM regardless of video length
 - ✅ **No OOM errors**: Tested with 1000+ frame videos
-- ✅ **TF32 acceleration**: 4x faster on RTX 30/40 series
+- ✅ **TF32 acceleration**: Optimized for RTX 30/40 series
 - ✅ **Adaptive padding**: Handles arbitrary resolutions (512x512 to 8K)
 - ✅ **Periodic cache clearing**: Prevents memory leaks (RIFE pattern)
 - ✅ **Configurable quality**: Choose speed vs quality tradeoff
@@ -162,7 +156,7 @@ The **TLBVFI Interpolator V2** is a complete rewrite aligned with the original p
 VHS LoadVideo → FramePairSlicer → TLBVFI_Interpolator_V2 → VHS SaveVideo
 ```
 
-**Advantages over chunk-based:**
+**Advantages:**
 - Simpler workflow (no chunking/concatenation)
 - Works with standard ComfyUI video nodes
 - Memory-safe without disk I/O overhead
@@ -402,15 +396,15 @@ VHS LoadVideo → FramePairSlicer → TLBVFI Interpolator → ChunkVideoSaver
 #### Video Codec Recommendations
 
 **H.264 (libx264):**
-- ✅ Faster encoding (~10-20% faster than H.265)
+- ✅ Faster encoding
 - ✅ Universal compatibility (plays everywhere)
 - ✅ Good compression (~50-100MB per chunk @ 4K, CRF 18)
 - 🎯 **Recommended for most users**
 
 **H.265 (libx265):**
 - ✅ Better compression (~30-50MB per chunk @ 4K, CRF 23)
-- ✅ 30-50% smaller files than H.264
-- ⚠️ Slower encoding (~15-30% slower than H.264)
+- ✅ Smaller file sizes
+- ⚠️ Slower encoding
 - ⚠️ Requires modern hardware decoders for playback
 
 #### Quality Settings (CRF)
@@ -464,21 +458,15 @@ ffmpeg -version
 2. **UNet Diffusion**: Generates intermediate frame representations in latent space
 3. **VQGAN Decoder**: Reconstructs high-quality frames from latent representations
 
-### TF32 Acceleration Magic
+### TF32 Acceleration
 
-**TensorFloat-32 (TF32)** is NVIDIA's innovation for Ampere/Ada GPUs:
+**TensorFloat-32 (TF32)** is NVIDIA's optimization for Ampere/Ada GPUs:
 
-- **Internal**: Computes like FP16 (fast Tensor Core operations)
+- **Internal**: Uses Tensor Core operations
 - **External**: Maintains FP32 interface (no code changes needed)
-- **Result**: FP16-like speed with FP32 precision
+- **Result**: Improved performance with FP32 precision
 
-```
-Standard FP32:  ████████████████ (100% time, full precision)
-TF32 on RTX 40: ██ (12% time, full precision) ⚡⚡⚡
-```
-
-**Why TF32 > FP16 for this model:**
-- ✅ Same performance (both use Tensor Cores)
+**Benefits of TF32:**
 - ✅ No dtype compatibility issues
 - ✅ No precision loss or numerical instability
 - ✅ Automatic - just enable and forget
@@ -486,15 +474,6 @@ TF32 on RTX 40: ██ (12% time, full precision) ⚡⚡⚡
 
 ---
 
-## 📊 Performance Comparison
-
-| Configuration | GPU Usage | Speed | Complexity | Stability |
-|--------------|-----------|-------|------------|-----------|
-| Original FP32 | 20-30% | 1.0x | Simple | Perfect |
-| FP16 Manual | 85-95% | 1.5x | Very High | Issues |
-| **TF32 (This)** | **85-95%** | **1.5-2x** | **Simple** | **Perfect** |
-
----
 
 ## 🔧 Technical Details
 
@@ -541,15 +520,13 @@ This implementation combines multiple optimization techniques to achieve high pe
 
 **What it does:**
 - Enables TensorFloat-32 compute on Ampere/Ada GPUs (RTX 30/40 series)
-- Accelerates matrix operations by 8-10x using Tensor Cores
+- Accelerates matrix operations using Tensor Cores
 - No code changes needed - just enable backend flags
 
 **Performance impact:**
-```
-Matrix multiplication: 8-10x faster
-Convolution operations: 3-5x faster
-Overall pipeline: 1.5-2x faster
-```
+- Matrix multiplication: Uses Tensor Cores
+- Convolution operations: Accelerated with TF32
+- Overall pipeline: Optimized processing
 
 **Implementation:**
 ```python
@@ -587,19 +564,12 @@ output = tensor.to('cpu', non_blocking=True)
 **What it does:**
 - Eliminates massive pre-allocated GPU buffer
 - Streams results to CPU incrementally during processing
-- Trades speed for unlimited video length support
+- Enables unlimited video length support
 
 **Memory impact:**
 ```
 Before: 397 frames × 23.7 MB = 9.43 GB GPU (OOM!)
 After:  Stream to CPU as processed = 0 GB GPU ✓
-```
-
-**Speed trade-off:**
-```
-Pre-allocated GPU buffer:  2.1 it/s,  OOM at t≥2
-Streaming (synchronous):   1.53 it/s, No OOM ✓
-Streaming (asynchronous):  1.75-1.85 it/s, No OOM ✓
 ```
 
 ### 4. Periodic Cache Clearing
@@ -643,38 +613,30 @@ if (i + 1) % 10 == 0:
 ```
 
 **Performance impact:**
-```
-Memory reuse rate: 60% → 85%
-Allocation overhead: -2-3%
-Fragmentation: Significantly reduced
-```
+- Improved memory reuse
+- Reduced allocation overhead
+- Fragmentation: Significantly reduced
 
-### Comprehensive Benchmark
+### Memory Optimization Results
 
 **Test configuration:** 100 frames, 1080p (1920×1080), times_to_interpolate=2, RTX 4090 24GB
 
-| Version | Speed | Time | Peak VRAM | Stability | Notes |
-|---------|-------|------|-----------|-----------|-------|
-| Original FP32 | 2.1 it/s | 47s | 22.9 GB | ❌ OOM | Baseline |
-| + TF32 | 2.1 it/s | 47s | 22.9 GB | ❌ OOM | No memory fix |
-| v0.1.3 (Streaming) | 1.53 it/s | 65s | 13.5 GB | ✅ Stable | -27% speed |
-| **v0.1.5 (Optimized)** | **1.75-1.85 it/s** | **53-57s** | **13.5 GB** | ✅ **Stable** | **-12-15% speed** |
+| Version | Speed | Time | Peak VRAM | Stability |
+|---------|-------|------|-----------|-----------|
+| v0.1.3 (Streaming) | 1.53 it/s | 65s | 13.5 GB | ✅ Stable |
+| **v0.1.5 (Optimized)** | **1.75-1.85 it/s** | **53-57s** | **13.5 GB** | ✅ **Stable** |
 
-**Optimization contributions:**
+**Key optimizations applied:**
+- TF32 Acceleration for Tensor Core usage
+- Async Transfers for parallel I/O
+- Streaming Output to prevent OOM
+- Periodic Cache Clearing for memory management
+- Explicit Cleanup for better memory reuse
 
-| Optimization | Speed Gain | Memory Saving | OOM Prevention |
-|--------------|-----------|---------------|----------------|
-| TF32 Acceleration | +50-100% | - | - |
-| Async Transfers | +3-5% | - | - |
-| Streaming Output | -27% → -12% | **-9.43 GB** | ✅ |
-| Periodic Cache | +4-5% | Fragmentation ↓ | ✅ |
-| Explicit Cleanup | +3-5% | Reuse ↑ | ✅ |
-
-**Final result:**
-- ✅ **41% less memory** (22.9 GB → 13.5 GB)
+**Results:**
 - ✅ **OOM completely eliminated** (supports unbounded video length)
-- ✅ **Speed sacrifice minimized** (27% → 12-15% with optimizations)
 - ✅ **1000+ frame videos at 1080p** with times_to_interpolate=2
+- ✅ **Stable 13.5 GB peak memory usage**
 
 ### Code Execution Flow (Per Segment)
 
@@ -748,8 +710,8 @@ This project follows the same license as the original TLB-VFI model. Please refe
 ### v0.3.0 - Production V2 Release (MAJOR)
 - 🎉 **NEW: TLBVFI_Interpolator_V2** - Production-grade frame interpolator
 - 🔒 **Memory safety**: Guaranteed 4.2GB peak VRAM (4K, FP16) - no OOM on 8GB GPUs
-- 🚀 **FP16 inference**: 2x memory reduction, <0.1dB PSNR loss
-- ⚡ **TF32 acceleration**: 4x speedup on RTX 30/40 series
+- 🚀 **FP16 inference**: Memory reduction with minimal PSNR loss
+- ⚡ **TF32 acceleration**: Optimized for RTX 30/40 series
 - 📐 **Adaptive padding**: Handles arbitrary resolutions (original paper pattern)
 - 🔄 **Periodic cache clearing**: Every 10 pairs (RIFE pattern)
 - ⚙️ **Configurable quality**: 10/20/50 timesteps, 0.5/1.0 flow scale
@@ -804,7 +766,7 @@ This project follows the same license as the original TLB-VFI model. Please refe
 - 🎬 **NEW: Chunk-based workflow** for unlimited video length processing
 - 🔧 **4 new nodes**: FramePairSlicer, Interpolator (Chunk Mode), ChunkVideoSaver, VideoConcatenator
 - 💾 **Disk-based streaming**: Process 2 frames at a time, save chunks to disk
-- 📊 **Memory breakthrough**: 4K 10min video - 13TB → 13GB (99.9% reduction)
+- 📊 **Memory breakthrough**: 4K 10min video now uses only 13GB
 - ♻️ **Resumable processing**: Manifest-based state tracking enables resume after interruption
 - 📁 **Organized storage**: Chunks saved in session directories with metadata
 - 🔄 **Model reuse**: shared_model parameter eliminates reload overhead
@@ -833,29 +795,29 @@ This project follows the same license as the original TLB-VFI model. Please refe
 - 🚀 **Performance maintained** - async transfers still work correctly
 
 ### v0.1.4 (v2.0.2) - Performance Optimization
-- ⚡ **Speed optimization** - reduced overhead from 27% to ~12-15%
+- ⚡ **Speed optimization** - reduced processing overhead
 - 🔄 **Periodic cache clearing** (every 10 segments vs every segment)
 - 🚀 **Non-blocking CPU transfers** for async GPU→CPU data movement
-- 📈 **Performance recovery** - 1.53 it/s → ~1.75-1.85 it/s expected
-- 🛡️ **OOM safety maintained** - still 13.5GB peak memory usage
-- ⚖️ **Better trade-off** - speed sacrifice halved while keeping stability
+- 📈 **Performance recovery** - improved processing speed
+- 🛡️ **OOM safety maintained** - stable 13.5GB peak memory usage
+- ⚖️ **Better trade-off** - optimized balance between speed and stability
 
 ### v0.1.3 (v2.0.1) - Memory Optimization
 - 🔥 **Fixed OOM errors** when `times_to_interpolate >= 2`
 - 💾 **Streaming output** eliminates 9.43GB pre-allocated GPU buffer
-- 📉 **41% memory reduction** - peak usage drops from 22.9GB to 13.5GB
+- 📉 **Memory reduction** - peak usage now 13.5GB
 - ♾️ **Unbounded video length** support through incremental processing
 - 🧹 Removed unused `one_step_imgs` tensor collection
 - 🗑️ Explicit GPU memory cache clearing after each segment
 - ✅ Enables processing of 1000+ frame videos at 1080p with t=2
 
 ### v2.0.0 - TF32 Optimization
-- ⚡ Replaced FP16 with TF32 for simpler and better performance
-- 🚀 GPU utilization increased from 20-30% to 85-95%
+- ⚡ Replaced FP16 with TF32 for simpler implementation
+- 🚀 Improved GPU utilization
 - 🧹 Removed 50+ lines of complex dtype management code
-- 📊 1.5-2x faster processing on RTX 30/40 series GPUs
+- 📊 Optimized processing on RTX 30/40 series GPUs
 - 🎯 Optimized for RTX 4090 24GB VRAM
-- 💾 Single bulk GPU→CPU transfer eliminates PCIe bottleneck
+- 💾 Single bulk GPU→CPU transfer reduces overhead
 - 🔧 cuDNN autotuner for hardware-specific optimization
 
 ### v1.0.0 - Initial Release
