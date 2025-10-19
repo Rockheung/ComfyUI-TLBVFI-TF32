@@ -6,6 +6,12 @@ This test requires:
 - Model file: vimeo_unet.pth in ComfyUI/models/interpolation/
 - Test video: vfi_test_4K.webm in examples/
 
+IMPORTANT - Windows Limitation:
+- 4K interpolation tests are marked as xfail on Windows
+- Requires ~40GB virtual memory due to model architecture
+- PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True is NOT supported on Windows
+- These tests work on Linux or require 40GB+ GPU on Windows
+
 Run with:
     pytest tests/test_4k_interpolation.py -v -s
     # or
@@ -13,6 +19,7 @@ Run with:
 """
 
 import pytest
+import sys
 import torch
 from pathlib import Path
 
@@ -83,6 +90,13 @@ class Test4KInterpolation:
 
         print(f"[OK] Loaded 2 frames successfully")
 
+    @pytest.mark.xfail(
+        sys.platform == "win32",
+        reason="4K interpolation requires ~40GB memory. "
+               "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True not supported on Windows. "
+               "Works on Linux or requires 40GB+ GPU.",
+        raises=torch.OutOfMemoryError
+    )
     def test_interpolate_4k_frames(self, test_4k_video, skip_if_no_gpu):
         """Test actual 4K frame interpolation with TLBVFI model."""
         try:
@@ -168,6 +182,13 @@ class Test4KInterpolation:
 class Test4KPerformance:
     """Test 4K interpolation performance metrics."""
 
+    @pytest.mark.xfail(
+        sys.platform == "win32",
+        reason="4K interpolation requires ~40GB memory. "
+               "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True not supported on Windows. "
+               "Works on Linux or requires 40GB+ GPU.",
+        raises=torch.OutOfMemoryError
+    )
     def test_4k_interpolation_speed(self, test_4k_video, skip_if_no_gpu):
         """Measure 4K interpolation performance on RTX 4090."""
         import time
