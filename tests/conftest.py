@@ -21,6 +21,18 @@ mock_folder_paths = MagicMock()
 mock_folder_paths.get_folder_paths = MagicMock(return_value=[str(PROJECT_ROOT / "models")])
 # Mock get_filename_list to return a fake model file so INPUT_TYPES() doesn't fail
 mock_folder_paths.get_filename_list = MagicMock(return_value=["vimeo_unet.pth"])
+
+# Mock get_full_path to return actual ComfyUI model path
+def mock_get_full_path(folder_name, filename):
+    """Return full path to model file in ComfyUI installation."""
+    if folder_name == "interpolation":
+        # Try ComfyUI installation directory
+        comfyui_model_path = Path("D:/Users/rock/Documents/ComfyUI/models/interpolation") / filename
+        if comfyui_model_path.exists():
+            return str(comfyui_model_path)
+    return None
+
+mock_folder_paths.get_full_path = mock_get_full_path
 sys.modules['folder_paths'] = mock_folder_paths
 
 # Mock comfy modules BEFORE any imports

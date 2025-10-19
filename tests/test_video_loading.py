@@ -263,7 +263,7 @@ class TestMultipleResolutions:
         assert height == expected_height, f"{video_name}: expected height {expected_height}, got {height}"
         assert width == expected_width, f"{video_name}: expected width {expected_width}, got {width}"
 
-        print(f"\n{video_name}: {width}x{height} ✓")
+        print(f"\n{video_name}: {width}x{height} [OK]")
 
 
 class TestVideoQuality:

@@ -39,7 +39,7 @@ def skip_if_no_gpu():
     if not torch.cuda.is_available():
         pytest.skip("CUDA GPU not available")
 
-    print(f"\n✅ GPU available: {torch.cuda.get_device_name(0)}")
+    print(f"\n[OK] GPU available: {torch.cuda.get_device_name(0)}")
     print(f"   CUDA version: {torch.version.cuda}")
 
 
@@ -64,7 +64,7 @@ class Test4KInterpolation:
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        print(f"\n📹 Video Info:")
+        print(f"\n[VIDEO] Video Info:")
         print(f"   Resolution: {width}x{height}")
         print(f"   FPS: {fps}")
         print(f"   Total frames: {frame_count}")
@@ -81,7 +81,7 @@ class Test4KInterpolation:
         assert frame1.shape == (2160, 3840, 3)
         assert frame2.shape == (2160, 3840, 3)
 
-        print(f"✅ Loaded 2 frames successfully")
+        print(f"[OK] Loaded 2 frames successfully")
 
     def test_interpolate_4k_frames(self, test_4k_video, skip_if_no_gpu):
         """Test actual 4K frame interpolation with TLBVFI model."""
@@ -109,13 +109,13 @@ class Test4KInterpolation:
         frame1_batch = torch.from_numpy(np.expand_dims(frame1_rgb, axis=0))
         frame2_batch = torch.from_numpy(np.expand_dims(frame2_rgb, axis=0))
 
-        print(f"\n🖼️  Input frames shape: {frame1_batch.shape}")
+        print(f"\n[FRAMES] Input frames shape: {frame1_batch.shape}")
 
         # Initialize interpolator
         interpolator = TLBVFI_Interpolator_V2()
 
         # Run interpolation (1x = 1 intermediate frame)
-        print(f"🚀 Starting 4K frame interpolation...")
+        print(f"[START] Starting 4K frame interpolation...")
         print(f"   This may take 30-60 seconds on RTX 4090...")
 
         try:
@@ -134,7 +134,7 @@ class Test4KInterpolation:
             # Result is a tuple: (interpolated_frames,)
             interpolated_frames = result[0]
 
-            print(f"\n✅ Interpolation successful!")
+            print(f"\n[OK] Interpolation successful!")
             print(f"   Output shape: {interpolated_frames.shape}")
             print(f"   Expected: (3, 2160, 3840, 3)")  # 3 frames: prev, interpolated, next
 
@@ -149,11 +149,11 @@ class Test4KInterpolation:
             if torch.cuda.is_available():
                 memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
                 memory_reserved = torch.cuda.memory_reserved() / 1024**3  # GB
-                print(f"\n💾 GPU Memory:")
+                print(f"\n[MEMORY] GPU Memory:")
                 print(f"   Allocated: {memory_allocated:.2f} GB")
                 print(f"   Reserved: {memory_reserved:.2f} GB")
 
-            print(f"\n🎉 4K interpolation test PASSED!")
+            print(f"\n[PASS] 4K interpolation test PASSED!")
 
         except FileNotFoundError as e:
             if "vimeo_unet.pth" in str(e):
@@ -161,7 +161,7 @@ class Test4KInterpolation:
             raise
 
         except Exception as e:
-            print(f"\n❌ Interpolation failed: {e}")
+            print(f"\n[ERROR] Interpolation failed: {e}")
             raise
 
 
@@ -194,7 +194,7 @@ class Test4KPerformance:
         interpolator = TLBVFI_Interpolator_V2()
 
         # Warmup run
-        print(f"\n🔥 Warmup run...")
+        print(f"\n[WARMUP] Warmup run...")
         try:
             _ = interpolator.interpolate(
                 frame1_batch, frame2_batch, times_to_interpolate=1,
@@ -205,7 +205,7 @@ class Test4KPerformance:
             pytest.skip("Model file not found")
 
         # Timed run
-        print(f"\n⏱️  Performance test...")
+        print(f"\n[PERF] Performance test...")
         start_time = time.time()
 
         result = interpolator.interpolate(
@@ -216,7 +216,7 @@ class Test4KPerformance:
 
         elapsed_time = time.time() - start_time
 
-        print(f"\n📊 Performance Results:")
+        print(f"\n[RESULTS] Performance Results:")
         print(f"   Resolution: 4K (3840x2160)")
         print(f"   Time: {elapsed_time:.2f} seconds")
         print(f"   FPS: {1.0/elapsed_time:.2f}")
@@ -224,6 +224,6 @@ class Test4KPerformance:
         # RTX 4090 should handle 4K in reasonable time
         # This is informational, not a hard requirement
         if elapsed_time < 60:
-            print(f"   ✅ Good performance (< 60s)")
+            print(f"   [OK] Good performance (< 60s)")
         else:
-            print(f"   ⚠️  Slow performance (> 60s)")
+            print(f"   [WARN] Slow performance (> 60s)")
