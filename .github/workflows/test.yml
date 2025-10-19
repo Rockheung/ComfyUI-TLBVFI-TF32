@@ -58,16 +58,16 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
-    - name: Install dependencies
+    - name: Install ruff
       run: |
-        uv pip install ruff
+        uv tool install ruff
 
     - name: Lint with ruff
       run: |
-        uv run ruff check nodes/ utils/ tests/
+        uvx ruff check nodes/ utils/ tests/
       continue-on-error: true
 
     - name: Check formatting with ruff
       run: |
-        uv run ruff format --check nodes/ utils/ tests/
+        uvx ruff format --check nodes/ utils/ tests/
       continue-on-error: true
