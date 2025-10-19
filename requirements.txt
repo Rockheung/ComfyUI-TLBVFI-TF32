@@ -2,3 +2,7 @@ pytorch-lightning
 cupy-cuda12x
 omegaconf
 timm
+
+# Development dependencies
+pytest>=8.0.0
+pytest-cov>=4.0.0
