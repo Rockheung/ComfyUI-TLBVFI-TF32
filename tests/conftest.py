@@ -5,12 +5,17 @@ Provides common test fixtures and utilities for testing custom nodes
 without requiring ComfyUI installation.
 """
 
+import os
 import pytest
 import torch
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from typing import Generator
+
+# Set PyTorch CUDA memory allocator configuration BEFORE any CUDA operations
+# This helps prevent memory fragmentation on large allocations (e.g., 4K video)
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
