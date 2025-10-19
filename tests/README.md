@@ -132,9 +132,9 @@ start htmlcov/index.html  # Windows
 
 ### RTX 4090 머신에서 전체 테스트
 
-#### 1. 환경 준비
+#### 1. 환경 준비 (Windows PowerShell)
 
-```bash
+```powershell
 # CUDA 버전 확인
 nvidia-smi
 
@@ -146,15 +146,40 @@ python -c "import torch; print(f'Device: {torch.cuda.get_device_name(0)}')"
 
 #### 2. 전체 테스트 실행
 
-```bash
+**Option A: uv 사용 (권장)**
+
+```powershell
+# uv 설치 (미설치 시)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 의존성 설치 (CUDA 포함)
+cd ComfyUI-TLBVFI-TF32
+uv sync --extra cuda --extra dev
+
 # 모든 테스트 실행 (GPU 포함)
-pytest tests/ -v --tb=short
+uv run pytest tests/ -v --tb=short
 
 # GPU 테스트만 실행
-pytest tests/ -v -m requires_gpu
+uv run pytest tests/ -v -m requires_gpu
 
 # 느린 테스트 포함
-pytest tests/ -v --run-slow
+uv run pytest tests/ -v --run-slow
+```
+
+**Option B: pip 사용 (전통적)**
+
+```powershell
+# pip로 의존성 설치
+pip install pytest pytest-cov opencv-python
+
+# 모든 테스트 실행 (GPU 포함)
+python -m pytest tests/ -v --tb=short
+
+# GPU 테스트만 실행
+python -m pytest tests/ -v -m requires_gpu
+
+# 느린 테스트 포함
+python -m pytest tests/ -v --run-slow
 ```
 
 #### 3. 예상 결과
@@ -228,9 +253,46 @@ tox
 
 ### 테스트가 실패하는 경우
 
-#### ImportError: No module named 'pytest'
+#### Windows에서 'pytest' 명령을 찾을 수 없는 경우
+
+**증상:**
+```powershell
+pytest : 'pytest' 용어가 cmdlet, 함수, 스크립트 파일 또는 실행할 수 있는 프로그램 이름으로 인식되지 않습니다.
+```
+
+**해결 방법 (uv 사용 권장):**
+
+```powershell
+# 1. uv 설치 (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 2. 의존성 설치
+cd ComfyUI-TLBVFI-TF32
+uv sync --extra cuda --extra dev
+
+# 3. 테스트 실행
+uv run pytest tests/ -v -m "not slow"
+```
+
+**대안 (pip 사용):**
+
+```powershell
+# 1. pip로 의존성 설치
+pip install pytest pytest-cov opencv-python
+
+# 2. Python 모듈로 직접 실행
+python -m pytest tests/ -v -m "not slow"
+```
+
+#### Linux/macOS에서 ImportError: No module named 'pytest'
 ```bash
+# uv 사용
+uv sync --extra dev
+uv run pytest tests/ -v
+
+# 또는 pip 사용
 pip install pytest pytest-cov
+pytest tests/ -v
 ```
 
 #### ModuleNotFoundError: No module named 'folder_paths'
