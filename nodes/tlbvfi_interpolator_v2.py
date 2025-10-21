@@ -30,6 +30,7 @@ try:
         get_memory_stats,
         print_memory_summary,
     )
+    from ..utils.tiling import process_with_tiling
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from utils import (
@@ -37,6 +38,7 @@ except ImportError:
         get_memory_stats,
         print_memory_summary,
     )
+    from utils.tiling import process_with_tiling
 
 import folder_paths
 
@@ -142,6 +144,18 @@ class TLBVFI_Interpolator_V2:
                 # 0.5 = Fast (half resolution optical flow, paper default)
                 # 1.0 = Quality (full resolution optical flow, 2x slower decode)
 
+                "tile_size": ("INT", {
+                    "default": 512,
+                    "min": 0,
+                    "max": 2048,
+                    "step": 128,
+                    "display": "number"
+                }),
+                # 0 = Disable tiling (process full image, faster but uses more VRAM)
+                # 512 = Enable tiling (512x512 tiles, for 2K/4K on limited VRAM)
+                # Recommended: 0 for 1080p, 512 for 2K/4K
+                # WARNING: Values 1-127 will cause errors!
+
                 "cpu_offload": ("BOOLEAN", {"default": True}),
                 # True = Immediate GPU→CPU transfer (RIFE pattern, recommended)
                 # False = Keep frames on GPU (faster but uses more VRAM)
@@ -201,7 +215,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
     def interpolate(self, prev_frame, next_frame, model_name,
                    times_to_interpolate=0, enable_tf32=True,
-                   sample_steps=10, flow_scale=0.5, cpu_offload=True, gpu_id=0):
+                   sample_steps=10, flow_scale=0.5, tile_size=0, cpu_offload=True, gpu_id=0):
         """
         Production-grade interpolation with memory safety.
 
@@ -213,6 +227,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             enable_tf32: Enable TF32 on RTX 30/40 (4x speed)
             sample_steps: Diffusion timesteps (10/20/50)
             flow_scale: Flow resolution (0.5=fast, 1.0=quality)
+            tile_size: Tile size for tiled inference (0=disabled, 512=recommended for 2K/4K)
             cpu_offload: Immediate GPU→CPU transfer (recommended)
             gpu_id: CUDA device ID
 
@@ -243,6 +258,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 flow_scale = effective_flow_scale
 
             print(f"  Flow scale: {flow_scale}")
+            print(f"  Tile size: {tile_size if tile_size > 0 else 'Disabled (full image)'}")
             print(f"  CPU offload: {'Enabled' if cpu_offload else 'Disabled'}")
             print(f"  Device: {device}")
             print(f"{'='*80}\n")
@@ -272,7 +288,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                   f"({2**times_to_interpolate}x frames)")
             result = self._interpolate_recursive(
                 prev_tensor, next_tensor, model, times_to_interpolate,
-                flow_scale, cpu_offload, device
+                flow_scale, tile_size, cpu_offload, device
             )
 
         # Postprocessing: unpad
@@ -432,7 +448,15 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         with torch.no_grad():
             # Core interpolation (original paper: model.sample())
             # No autocast needed - model and inputs are already in correct dtype
-            mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
+            if tile_size > 0:
+                # Use tiled inference for high-resolution images
+                mid_frame = process_with_tiling(
+                    model, prev_tensor, next_tensor,
+                    tile_size=tile_size, overlap=64, scale=flow_scale
+                )
+            else:
+                # Process full image
+                mid_frame = model.sample(prev_tensor, next_tensor, scale=flow_scale)
 
             # FP16 Safety: Replace NaN/Inf with valid values before denormalization
             # This prevents black frames when diffusion sampling produces invalid values
@@ -458,7 +482,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         return mid_frame
 
     def _interpolate_recursive(self, prev_tensor, next_tensor, model,
-                              times_to_interpolate, flow_scale, cpu_offload, device):
+                              times_to_interpolate, flow_scale, tile_size, cpu_offload, device):
         """
         Recursive bisection with aggressive memory management.
 
@@ -531,7 +555,15 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
                 # Interpolate (no autocast needed - model and inputs already in correct dtype)
                 with torch.no_grad():
-                    mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
+                    if tile_size > 0:
+                        # Use tiled inference for high-resolution images
+                        mid_frame = process_with_tiling(
+                            model, frame_a, frame_b,
+                            tile_size=tile_size, overlap=64, scale=flow_scale
+                        )
+                    else:
+                        # Process full image
+                        mid_frame = model.sample(frame_a, frame_b, scale=flow_scale)
 
                 # FP16 Safety: Replace NaN/Inf and clamp to [-1, 1]
                 if torch.isnan(mid_frame).any() or torch.isinf(mid_frame).any():

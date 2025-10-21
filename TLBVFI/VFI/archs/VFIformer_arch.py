@@ -184,14 +184,35 @@ class FlowRefineNetA(nn.Module):
     def forward_once(self, x0, x1, flow0, flow1):
         B, C, H, W = x0.size()
 
-        x0_unfold = F.unfold(x0, kernel_size=(self.r * 2 + 1), padding=1).view(B, C * self.n_pts, H,
-                                                                               W)  # (B, C*n_pts, H, W)
-        x1_unfold = F.unfold(x1, kernel_size=(self.r * 2 + 1), padding=1).view(B, C * self.n_pts, H,
-                                                                               W)  # (B, C*n_pts, H, W)
+        # Critical memory optimization: Clear cache before expensive operations
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        # Memory optimization: Process unfold and warp for each stream separately
+        x0_unfold = F.unfold(x0, kernel_size=(self.r * 2 + 1), padding=1).view(B, C * self.n_pts, H, W)
+
+        # Clear cache before warp to ensure max memory available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         contents0 = warp(x0_unfold, flow0)
-        contents1 = warp(x1_unfold, flow1)
+        del x0_unfold  # Free memory immediately
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         contents0 = contents0.view(B, C, self.n_pts, H, W)
+
+        x1_unfold = F.unfold(x1, kernel_size=(self.r * 2 + 1), padding=1).view(B, C * self.n_pts, H, W)
+
+        # Clear cache before warp to ensure max memory available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        contents1 = warp(x1_unfold, flow1)
+        del x1_unfold  # Free memory immediately
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         contents1 = contents1.view(B, C, self.n_pts, H, W)
 
         fea0 = contents0[:, :, self.n_pts // 2, :, :]
@@ -200,22 +221,37 @@ class FlowRefineNetA(nn.Module):
         # get context feature
         occl = self.occl_convs(torch.cat([fea0, fea1], dim=1))
         fea = fea0 * occl + fea1 * (1 - occl)
+        del occl  # Free memory (keep fea, fea0, fea1 for later use)
 
         # get correlation features
         fea_view = fea.permute(0, 2, 3, 1).contiguous().view(B * H * W, 1, C)
-        contents0 = contents0.permute(0, 3, 4, 2, 1).contiguous().view(B * H * W, self.n_pts, C)
-        contents1 = contents1.permute(0, 3, 4, 2, 1).contiguous().view(B * H * W, self.n_pts, C)
+
+        # Memory optimization: Process contents tensors one at a time
+        contents0_view = contents0.permute(0, 3, 4, 2, 1).contiguous().view(B * H * W, self.n_pts, C)
+        del contents0  # Free memory immediately after reshape
+
+        contents1_view = contents1.permute(0, 3, 4, 2, 1).contiguous().view(B * H * W, self.n_pts, C)
+        del contents1  # Free memory immediately after reshape
+
+        # Clear cache before expensive operations
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         fea_view = self.L2normalize(fea_view, dim=-1)
-        contents0 = self.L2normalize(contents0, dim=-1)
-        contents1 = self.L2normalize(contents1, dim=-1)
-        corr0 = torch.einsum('bic,bjc->bij', fea_view, contents0)  # (B*H*W, 1, n_pts)
-        corr1 = torch.einsum('bic,bjc->bij', fea_view, contents1)
-        # corr0 = corr0 / torch.sqrt(torch.tensor(C).float())
-        # corr1 = corr1 / torch.sqrt(torch.tensor(C).float())
-        corr0 = corr0.view(B, H, W, self.n_pts).permute(0, 3, 1, 2).contiguous()  # (B, n_pts, H, W)
+        contents0_view = self.L2normalize(contents0_view, dim=-1)
+        contents1_view = self.L2normalize(contents1_view, dim=-1)
+
+        # Compute correlations
+        corr0 = torch.einsum('bic,bjc->bij', fea_view, contents0_view)
+        del contents0_view  # Free after use
+
+        corr1 = torch.einsum('bic,bjc->bij', fea_view, contents1_view)
+        del fea_view, contents1_view  # Free after use
+
+        corr0 = corr0.view(B, H, W, self.n_pts).permute(0, 3, 1, 2).contiguous()
         corr1 = corr1.view(B, H, W, self.n_pts).permute(0, 3, 1, 2).contiguous()
-        corr0 = self.corr_convs(corr0)  # (B, corr_dim, H, W)
+
+        corr0 = self.corr_convs(corr0)
         corr1 = self.corr_convs(corr1)
 
         # get flow features
@@ -224,21 +260,32 @@ class FlowRefineNetA(nn.Module):
 
         # merge correlation and flow features, get motion features
         motion0 = self.motion_convs(torch.cat([corr0, flow0_fea], dim=1))
+        del corr0, flow0_fea  # Free after use
+
         motion1 = self.motion_convs(torch.cat([corr1, flow1_fea], dim=1))
+        del corr1, flow1_fea  # Free after use
 
         # update flows
         inp0 = torch.cat([fea, fea0, motion0, flow0], dim=1)
         delta_flow0 = self.flow_head(self.gru(inp0))
+        del inp0  # Free after use
         flow0 = flow0 + delta_flow0
+        del delta_flow0, motion0, fea0  # Free after use
+
         inp1 = torch.cat([fea, fea1, motion1, flow1], dim=1)
         delta_flow1 = self.flow_head(self.gru(inp1))
+        del inp1  # Free after use
         flow1 = flow1 + delta_flow1
+        del delta_flow1, motion1, fea1, fea  # Free after use
 
         return flow0, flow1
 
     def forward(self, x0, x1, flow0, flow1):
         for i in range(self.n_iters):
             flow0, flow1 = self.forward_once(x0, x1, flow0, flow1)
+            # Clear cache after each iteration to prevent memory accumulation
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         return torch.cat([flow0, flow1], dim=1)
 
@@ -254,18 +301,43 @@ class FlowRefineNet_Multis_our(nn.Module):
         self.rf_block4 = FlowRefineNetA(context_dim=2 * c, c=2 * c, r=1, n_iters=n_iters)
 
     def forward(self, feats, flow):
-        
+
         s_1,s_2,s_3,s_4 = feats
         bs = s_1.size(0)//2
+
+        # Memory optimization: Clear cache before processing
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         # update flow from small scale
         flow = F.interpolate(flow, scale_factor=0.25, mode="bilinear", align_corners=False) * 0.25  # 1/8
         flow = self.rf_block4(s_4[:bs], s_4[bs:], flow[:, :2], flow[:, 2:4])  # 1/8
+
+        # Clear cache between blocks
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         flow = F.interpolate(flow, scale_factor=2., mode="bilinear", align_corners=False) * 2.
         flow = self.rf_block3(s_3[:bs], s_3[bs:], flow[:, :2], flow[:, 2:4])  # 1/4
+
+        # Clear cache between blocks
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         flow = F.interpolate(flow, scale_factor=2., mode="bilinear", align_corners=False) * 2.
         flow = self.rf_block2(s_2[:bs], s_2[bs:], flow[:, :2], flow[:, 2:4])  # 1/2
+
+        # Critical: Clear cache before full resolution block
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         flow = F.interpolate(flow, scale_factor=2., mode="bilinear", align_corners=False) * 2.
         flow = self.rf_block1(s_1[:bs], s_1[bs:], flow[:, :2], flow[:, 2:4])  # 1
+
+        # Clear cache before warping
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         # warp features by the updated flow
         c0 = [s_1[:bs], s_2[:bs], s_3[:bs], s_4[:bs]]
         c1 = [s_1[bs:], s_2[bs:], s_3[bs:], s_4[bs:]]
@@ -274,9 +346,13 @@ class FlowRefineNet_Multis_our(nn.Module):
 
         return flow, out0, out1
 
-    def warp_fea(self, feas, flow): 
+    def warp_fea(self, feas, flow):
         outs = []
         for i, fea in enumerate(feas):
+            # Clear cache before warp (especially critical for first iteration with full resolution)
+            if i == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             out = warp(fea, flow)
             outs.append(out)
             flow = F.interpolate(flow, scale_factor=0.5, mode="bilinear", align_corners=False) * 0.5
