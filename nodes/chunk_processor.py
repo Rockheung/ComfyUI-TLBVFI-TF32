@@ -250,9 +250,12 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                 f"Please load a video with multiple frames."
             )
 
+        # Calculate input tensor memory
+        input_size_gb = images.element_size() * images.nelement() / (1024**3)
+
         print(f"\n{'='*80}")
         print(f"TLBVFI_ChunkProcessor: Starting processing")
-        print(f"  Input: {N} frames @ {H}×{W}")
+        print(f"  Input: {N} frames @ {H}×{W} ({input_size_gb:.2f}GB in memory)")
         print(f"  Total pairs to process: {total_pairs}")
         print(f"  Interpolation: {times_to_interpolate}x ({2**times_to_interpolate}x output frames)")
         print(f"  Output FPS: {fps}")
@@ -362,6 +365,12 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             del interpolated_frames, frame_pair
             cleanup_memory(device, force_gc=True)
 
+            # Log memory usage
+            if torch.cuda.is_available():
+                gpu_mem_allocated = torch.cuda.memory_allocated(device) / (1024**3)
+                gpu_mem_reserved = torch.cuda.memory_reserved(device) / (1024**3)
+                print(f"  GPU Memory: {gpu_mem_allocated:.2f}GB allocated, {gpu_mem_reserved:.2f}GB reserved")
+
             if self._stop_requested():
                 interrupted = True
                 print("\nTLBVFI_ChunkProcessor: Stop requested - ending after current chunk.")
@@ -425,6 +434,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
 
         frames = interpolated_tuple[0].to('cpu', non_blocking=True)
 
+        # Clean up intermediate tensors
+        del prev_frame, next_frame, interpolated_tuple
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
         if not is_last_pair:
             frames = frames[:-1]
 
@@ -442,6 +455,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                 img = Image.fromarray(frame_np)
                 img_path = os.path.join(save_dir, f"frame_{idx:04d}.png")
                 img.save(img_path)
+                del frame_np, img
 
             print(f"  Saved {frames.shape[0]} frames to {save_dir}")
 
@@ -512,6 +526,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
         process.stdin.close()
 
         stdout, stderr = process.communicate()
+
+        # Explicitly delete large numpy array
+        del frames_np
+        gc.collect()
 
         if process.returncode != 0:
             raise RuntimeError(
