@@ -139,7 +139,7 @@ class TLBVFI_ChunkProcessor:
                 "times_to_interpolate": ("INT", {"default": 1, "min": 1, "max": 4, "step": 1}),
                 "fps": ("FLOAT", {"default": 30.0, "min": 1.0, "max": 120.0, "step": 0.1}),
                 "codec": (["h264_nvenc", "hevc_nvenc", "libx264", "libx265", "libvpx-vp9"],),
-                "crf": ("INT", {"default": 18, "min": 0, "max": 51, "step": 1}),
+                "bitrate": ("STRING", {"default": "50M"}),  # e.g., "50M", "100M"
                 "gpu_id": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
             },
             "optional": {
@@ -154,6 +154,16 @@ class TLBVFI_ChunkProcessor:
                     "display": "slider"
                 }),
                 "flow_scale": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
+                "tile_size": ("INT", {
+                    "default": 512,
+                    "min": 0,
+                    "max": 2048,
+                    "step": 128,
+                    "display": "number"
+                }),
+                # 0 = Disable tiling (process full image, faster but uses more VRAM)
+                # 512 = Enable tiling (512x512 tiles, for 2K/4K on limited VRAM)
+                # Recommended: 0 for 1080p, 512 for 2K/4K
                 "cpu_offload": ("BOOLEAN", {"default": True}),
             }
         }
@@ -176,7 +186,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
 1. Connect IMAGE tensor from VHS LoadVideo
 2. Select model (vimeo_unet.pth)
 3. Set times_to_interpolate (1=2x, 2=4x, 3=8x, 4=16x)
-4. Set video encoding parameters (fps, codec, crf)
+4. Set video encoding parameters (fps, codec, bitrate)
 5. Run once - all pairs will be processed automatically
 6. Connect session_id output to VideoConcatenator
 
@@ -202,10 +212,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
     """
 
     def process_all_chunks(self, images: torch.Tensor, model_name: str, times_to_interpolate: int,
-                          fps: float, codec: str, crf: int, gpu_id: int,
+                          fps: float, codec: str, bitrate: str, gpu_id: int,
                           session_id: str = "", save_debug_images: bool = False,
                           enable_tf32: bool = True, sample_steps: int = 10,
-                          flow_scale: float = 0.5, cpu_offload: bool = True):
+                          flow_scale: float = 0.5, tile_size: int = 512, cpu_offload: bool = True):
         """
         Process all frame pairs automatically.
 
@@ -215,13 +225,14 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             times_to_interpolate: 1=2x, 2=4x, 3=8x, 4=16x
             fps: Output video framerate
             codec: Video codec (h264_nvenc, hevc_nvenc, etc.)
-            crf: Quality (0=lossless, 51=worst, 18=visually lossless)
+            bitrate: Target bitrate (e.g., "50M", "100M")
             gpu_id: CUDA device ID
             session_id: Session identifier (auto-generated if empty)
             save_debug_images: Save PNG frames for debugging
             enable_tf32: Toggle TF32 acceleration (RTX 30/40)
             sample_steps: Diffusion steps passed to Interpolator V2
             flow_scale: Optical flow resolution scaling
+            tile_size: Tile size for tiled inference (0=disabled, 512=recommended for 2K/4K)
             cpu_offload: Offload intermediate frames to CPU after each step
 
         Returns:
@@ -245,9 +256,10 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
         print(f"  Total pairs to process: {total_pairs}")
         print(f"  Interpolation: {times_to_interpolate}x ({2**times_to_interpolate}x output frames)")
         print(f"  Output FPS: {fps}")
-        print(f"  Codec: {codec} (CRF={crf})")
+        print(f"  Codec: {codec} (Bitrate={bitrate})")
         print(f"  Sample steps: {sample_steps}")
         print(f"  Flow scale: {flow_scale}")
+        print(f"  Tile size: {tile_size if tile_size > 0 else 'Disabled (full image)'}")
         print(f"  TF32: {'Enabled' if enable_tf32 else 'Disabled'}")
         print(f"  CPU offload: {'Enabled' if cpu_offload else 'Disabled'}")
         print(f"{'='*80}\n")
@@ -283,7 +295,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                 'times_to_interpolate': times_to_interpolate,
                 'fps': fps,
                 'codec': codec,
-                'crf': crf,
+                'bitrate': bitrate,
                 'resolution': f"{H}x{W}",
                 'sample_steps': sample_steps,
                 'flow_scale': flow_scale,
@@ -321,6 +333,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                 enable_tf32,
                 sample_steps,
                 flow_scale,
+                tile_size,
                 cpu_offload,
                 gpu_id,
                 is_last_pair,
@@ -331,7 +344,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             # Save as video chunk
             chunk_path = os.path.join(session_dir, f"chunk_{pair_idx:04d}.mp4")
             self._save_chunk_as_video(
-                interpolated_frames, chunk_path, fps, codec, crf, ffmpeg_path
+                interpolated_frames, chunk_path, fps, codec, ffmpeg_path, bitrate
             )
 
             # Update manifest
@@ -382,6 +395,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                          enable_tf32: bool,
                          sample_steps: int,
                          flow_scale: float,
+                         tile_size: int,
                          cpu_offload: bool,
                          gpu_id: int,
                          is_last_pair: bool,
@@ -404,6 +418,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             enable_tf32=enable_tf32,
             sample_steps=sample_steps,
             flow_scale=flow_scale,
+            tile_size=tile_size,
             cpu_offload=cpu_offload,
             gpu_id=gpu_id,
         )
@@ -439,7 +454,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
         return frames
 
     def _save_chunk_as_video(self, frames: torch.Tensor, chunk_path: str,
-                            fps: float, codec: str, crf: int, ffmpeg_path: str):
+                            fps: float, codec: str, ffmpeg_path: str, bitrate: str):
         """
         Save frames as H.264/H.265 encoded video using FFmpeg.
 
@@ -448,8 +463,8 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             chunk_path: Output video path
             fps: Framerate
             codec: Video codec
-            crf: Quality (0-51)
             ffmpeg_path: FFmpeg executable path
+            bitrate: Target bitrate (e.g., "50M", "100M")
         """
         import numpy as np
 
@@ -475,7 +490,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             '-r', str(fps),
             '-i', '-',  # Read from stdin
             '-c:v', codec,
-            '-crf', str(crf),
+            '-b:v', bitrate,
             '-pix_fmt', pix_fmt,
             '-g', str(gop_size),
             '-bf', '0',  # No B-frames for concat compatibility
