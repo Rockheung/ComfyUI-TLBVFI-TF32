@@ -215,7 +215,8 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
     def interpolate(self, prev_frame, next_frame, model_name,
                    times_to_interpolate=0, enable_tf32=True,
-                   sample_steps=10, flow_scale=0.5, tile_size=0, cpu_offload=True, gpu_id=0):
+                   sample_steps=10, flow_scale=0.5, tile_size=0, cpu_offload=True, gpu_id=0,
+                   debug=False):
         """
         Production-grade interpolation with memory safety.
 
@@ -288,28 +289,32 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 max_tile_size=1536,  # Lower max to avoid memory issues
                 step=128
             )
-            if tile_size == 0:
-                print(f"  Selected tile size: Auto - Disabled (full image processing)")
-            else:
-                print(f"  Selected tile size: Auto - {tile_size}x{tile_size}")
+            if debug:
+                if tile_size == 0:
+                    print(f"  Selected tile size: Auto - Disabled (full image processing)")
+                else:
+                    print(f"  Selected tile size: Auto - {tile_size}x{tile_size}")
         else:
             # User manually specified tile size
-            print(f"  Selected tile size: Manual - {tile_size}x{tile_size}")
+            if debug:
+                print(f"  Selected tile size: Manual - {tile_size}x{tile_size}")
 
         # Core interpolation
         if times_to_interpolate == 0:
             # Single-frame interpolation (original paper mode)
-            print(f"TLBVFI_V2: Single-frame interpolation (original paper mode)")
+            if debug:
+                print(f"TLBVFI_V2: Single-frame interpolation (original paper mode)")
             result = self._interpolate_single(
-                prev_tensor, next_tensor, model, flow_scale, tile_size, cpu_offload
+                prev_tensor, next_tensor, model, flow_scale, tile_size, cpu_offload, debug
             )
         else:
             # Recursive bisection with memory management
-            print(f"TLBVFI_V2: Recursive bisection {times_to_interpolate}x "
-                  f"({2**times_to_interpolate}x frames)")
+            if debug:
+                print(f"TLBVFI_V2: Recursive bisection {times_to_interpolate}x "
+                      f"({2**times_to_interpolate}x frames)")
             result = self._interpolate_recursive(
                 prev_tensor, next_tensor, model, times_to_interpolate,
-                flow_scale, tile_size, cpu_offload, device
+                flow_scale, tile_size, cpu_offload, device, debug
             )
 
         # Postprocessing: unpad
@@ -421,7 +426,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         return prev_tensor, next_tensor, pad_info
 
-    def _interpolate_single(self, prev_tensor, next_tensor, model, flow_scale, tile_size, cpu_offload):
+    def _interpolate_single(self, prev_tensor, next_tensor, model, flow_scale, tile_size, cpu_offload, debug=False):
         """
         Single-frame interpolation (original paper pattern).
 
@@ -439,33 +444,34 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             mid_frame: (1, H, W, C) in [0, 1] on CPU or GPU
         """
         # Debug: verify dtype before model.sample
-        model_dtype = next(iter(model.parameters())).dtype
-        print(f"\n{'='*80}")
-        print(f"DEBUG SINGLE MODE:")
-        print(f"  Input tensors:")
-        print(f"    prev_tensor dtype={prev_tensor.dtype}, device={prev_tensor.device}, shape={prev_tensor.shape}")
-        print(f"    next_tensor dtype={next_tensor.dtype}, device={next_tensor.device}, shape={next_tensor.shape}")
-        print(f"  Model:")
-        print(f"    First param dtype={model_dtype}")
+        if debug:
+            model_dtype = next(iter(model.parameters())).dtype
+            print(f"\n{'='*80}")
+            print(f"DEBUG SINGLE MODE:")
+            print(f"  Input tensors:")
+            print(f"    prev_tensor dtype={prev_tensor.dtype}, device={prev_tensor.device}, shape={prev_tensor.shape}")
+            print(f"    next_tensor dtype={next_tensor.dtype}, device={next_tensor.device}, shape={next_tensor.shape}")
+            print(f"  Model:")
+            print(f"    First param dtype={model_dtype}")
 
-        # Check VQGAN encoder dtype
-        if hasattr(model, 'vqgan'):
-            if hasattr(model.vqgan, 'encoder'):
+            # Check VQGAN encoder dtype
+            if hasattr(model, 'vqgan'):
+                if hasattr(model.vqgan, 'encoder'):
+                    try:
+                        vqgan_param = next(iter(model.vqgan.encoder.parameters()))
+                        print(f"    VQGAN encoder dtype={vqgan_param.dtype}")
+                    except:
+                        print(f"    VQGAN encoder: Could not check dtype")
+
+            # Check UNet denoise_fn dtype
+            if hasattr(model, 'denoise_fn'):
                 try:
-                    vqgan_param = next(iter(model.vqgan.encoder.parameters()))
-                    print(f"    VQGAN encoder dtype={vqgan_param.dtype}")
+                    unet_param = next(iter(model.denoise_fn.parameters()))
+                    print(f"    UNet denoise_fn dtype={unet_param.dtype}")
                 except:
-                    print(f"    VQGAN encoder: Could not check dtype")
+                    print(f"    UNet denoise_fn: Could not check dtype")
 
-        # Check UNet denoise_fn dtype
-        if hasattr(model, 'denoise_fn'):
-            try:
-                unet_param = next(iter(model.denoise_fn.parameters()))
-                print(f"    UNet denoise_fn dtype={unet_param.dtype}")
-            except:
-                print(f"    UNet denoise_fn: Could not check dtype")
-
-        print(f"{'='*80}\n")
+            print(f"{'='*80}\n")
 
         with torch.no_grad():
             # Core interpolation (original paper: model.sample())
@@ -474,7 +480,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 # Use tiled inference for high-resolution images
                 mid_frame = process_with_tiling(
                     model, prev_tensor, next_tensor,
-                    tile_size=tile_size, overlap=64, scale=flow_scale
+                    tile_size=tile_size, overlap=64, scale=flow_scale, debug=debug
                 )
             else:
                 # Process full image
@@ -504,7 +510,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
         return mid_frame
 
     def _interpolate_recursive(self, prev_tensor, next_tensor, model,
-                              times_to_interpolate, flow_scale, tile_size, cpu_offload, device):
+                              times_to_interpolate, flow_scale, tile_size, cpu_offload, device, debug=False):
         """
         Recursive bisection with aggressive memory management.
 
@@ -571,7 +577,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 frame_b = (frame_b * two) - one
 
                 # Debug: verify dtype before model.sample
-                if i == 0 and iteration == 0:
+                if debug and i == 0 and iteration == 0:
                     print(f"  DEBUG: frame_a dtype={frame_a.dtype}, model dtype={model_dtype}")
                     print(f"  DEBUG: frame_a device={frame_a.device}, model device={next(iter(model.parameters())).device}")
 
@@ -581,7 +587,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                         # Use tiled inference for high-resolution images
                         mid_frame = process_with_tiling(
                             model, frame_a, frame_b,
-                            tile_size=tile_size, overlap=64, scale=flow_scale
+                            tile_size=tile_size, overlap=64, scale=flow_scale, debug=debug
                         )
                     else:
                         # Process full image
@@ -609,8 +615,9 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             # Replace frame list for next iteration
             frames_list = new_frames_list
 
-            print(f"    Iteration {iteration+1}/{times_to_interpolate}: "
-                  f"Generated {len(frames_list)} frames")
+            if debug:
+                print(f"    Iteration {iteration+1}/{times_to_interpolate}: "
+                      f"Generated {len(frames_list)} frames")
 
         # Stack all frames: list of (H,W,C) → (N,H,W,C)
         result = torch.stack(frames_list, dim=0)

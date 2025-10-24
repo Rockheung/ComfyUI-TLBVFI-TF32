@@ -247,7 +247,8 @@ def process_with_tiling(model,
                        frame_b: torch.Tensor,
                        tile_size: int = 512,
                        overlap: int = 64,
-                       scale: float = 1.0) -> torch.Tensor:
+                       scale: float = 1.0,
+                       debug: bool = False) -> torch.Tensor:
     """
     Process two frames through a model using tiled inference.
 
@@ -284,7 +285,8 @@ def process_with_tiling(model,
     # Calculate tile coordinates
     tile_coords_list = calculate_tiles(H, W, tile_size, overlap)
 
-    print(f"  Tiled processing: {len(tile_coords_list)} tiles ({tile_size}x{tile_size}, overlap={overlap})")
+    if debug:
+        print(f"  Tiled processing: {len(tile_coords_list)} tiles ({tile_size}x{tile_size}, overlap={overlap})")
 
     # Process each tile with progress tracking
     output_tiles = []
@@ -301,7 +303,7 @@ def process_with_tiling(model,
             tile_b = extract_tile(frame_b, coords)
 
             # Debug info for first tile
-            if i == 0:
+            if debug and i == 0:
                 print(f"    First tile shape: {tile_a.shape}")
 
             # Process tile through model
@@ -318,35 +320,36 @@ def process_with_tiling(model,
             if (i + 1) % 4 == 0:
                 torch.cuda.empty_cache()
 
-            # Calculate progress and ETA
-            progress_pct = ((i + 1) / total_tiles) * 100
+            # Calculate progress and ETA (only in debug mode)
+            if debug:
+                progress_pct = ((i + 1) / total_tiles) * 100
 
-            # Calculate ETA after processing at least 2 tiles
-            if len(tile_times) >= 2:
-                avg_time_per_tile = sum(tile_times) / len(tile_times)
-                remaining_tiles = total_tiles - (i + 1)
-                eta_seconds = avg_time_per_tile * remaining_tiles
+                # Calculate ETA after processing at least 2 tiles
+                if len(tile_times) >= 2:
+                    avg_time_per_tile = sum(tile_times) / len(tile_times)
+                    remaining_tiles = total_tiles - (i + 1)
+                    eta_seconds = avg_time_per_tile * remaining_tiles
 
-                # Format ETA
-                if eta_seconds < 60:
-                    eta_str = f"{eta_seconds:.0f}s"
-                elif eta_seconds < 3600:
-                    eta_str = f"{eta_seconds/60:.1f}m"
+                    # Format ETA
+                    if eta_seconds < 60:
+                        eta_str = f"{eta_seconds:.0f}s"
+                    elif eta_seconds < 3600:
+                        eta_str = f"{eta_seconds/60:.1f}m"
+                    else:
+                        eta_str = f"{eta_seconds/3600:.1f}h"
+
+                    # Progress bar
+                    bar_length = 30
+                    filled_length = int(bar_length * (i + 1) / total_tiles)
+                    bar = '█' * filled_length + '░' * (bar_length - filled_length)
+
+                    print(f"\r    [{bar}] {i+1}/{total_tiles} ({progress_pct:.1f}%) | ETA: {eta_str}", end='', flush=True)
                 else:
-                    eta_str = f"{eta_seconds/3600:.1f}h"
-
-                # Progress bar
-                bar_length = 30
-                filled_length = int(bar_length * (i + 1) / total_tiles)
-                bar = '█' * filled_length + '░' * (bar_length - filled_length)
-
-                print(f"\r    [{bar}] {i+1}/{total_tiles} ({progress_pct:.1f}%) | ETA: {eta_str}", end='', flush=True)
-            else:
-                # Simple progress for first tiles
-                bar_length = 30
-                filled_length = int(bar_length * (i + 1) / total_tiles)
-                bar = '█' * filled_length + '░' * (bar_length - filled_length)
-                print(f"\r    [{bar}] {i+1}/{total_tiles} ({progress_pct:.1f}%)", end='', flush=True)
+                    # Simple progress for first tiles
+                    bar_length = 30
+                    filled_length = int(bar_length * (i + 1) / total_tiles)
+                    bar = '█' * filled_length + '░' * (bar_length - filled_length)
+                    print(f"\r    [{bar}] {i+1}/{total_tiles} ({progress_pct:.1f}%)", end='', flush=True)
 
         except Exception as e:
             print(f"\n    ERROR processing tile {i+1}/{len(tile_coords_list)}: {e}")
@@ -354,18 +357,19 @@ def process_with_tiling(model,
             print(f"    Tile shape: {tile_a.shape if 'tile_a' in locals() else 'N/A'}")
             raise
 
-    # Print newline after progress bar
-    print()
+    # Print newline after progress bar (only in debug mode)
+    if debug:
+        print()
 
-    # Print total time
-    total_time = time.time() - start_time
-    if total_time < 60:
-        time_str = f"{total_time:.1f}s"
-    elif total_time < 3600:
-        time_str = f"{total_time/60:.1f}m"
-    else:
-        time_str = f"{total_time/3600:.1f}h"
-    print(f"    Completed in {time_str}")
+        # Print total time
+        total_time = time.time() - start_time
+        if total_time < 60:
+            time_str = f"{total_time:.1f}s"
+        elif total_time < 3600:
+            time_str = f"{total_time/60:.1f}m"
+        else:
+            time_str = f"{total_time/3600:.1f}h"
+        print(f"    Completed in {time_str}")
 
     # Verify we have tiles before merging
     if not output_tiles:

@@ -166,6 +166,7 @@ class TLBVFI_ChunkProcessor:
                 # 512/640/.../2048 = Manual tile size (must be multiple of 128)
                 # Recommended: 0 for automatic optimization
                 "cpu_offload": ("BOOLEAN", {"default": True}),
+                "debug": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -216,7 +217,8 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                           fps: float, codec: str, bitrate: str, gpu_id: int,
                           session_id: str = "", save_debug_images: bool = False,
                           enable_tf32: bool = True, sample_steps: int = 10,
-                          flow_scale: float = 0.5, tile_size: int = 512, cpu_offload: bool = True):
+                          flow_scale: float = 0.5, tile_size: int = 512, cpu_offload: bool = True,
+                          debug: bool = False):
         """
         Process all frame pairs automatically.
 
@@ -342,7 +344,8 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                 gpu_id,
                 is_last_pair,
                 save_debug_images,
-                pair_idx
+                pair_idx,
+                debug
             )
 
             # Save as video chunk
@@ -410,7 +413,8 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
                          gpu_id: int,
                          is_last_pair: bool,
                          save_debug_images: bool,
-                         pair_idx: int) -> torch.Tensor:
+                         pair_idx: int,
+                         debug: bool = False) -> torch.Tensor:
         """
         Interpolate a single frame pair using the production-grade V2 logic.
 
@@ -431,6 +435,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
             tile_size=tile_size,
             cpu_offload=cpu_offload,
             gpu_id=gpu_id,
+            debug=debug,
         )
 
         frames = interpolated_tuple[0].to('cpu', non_blocking=True)
