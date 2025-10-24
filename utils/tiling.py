@@ -11,6 +11,99 @@ import torch
 import torch.nn.functional as F
 from typing import Tuple, List
 import math
+import time
+
+
+def calculate_optimal_tile_size(
+    height: int,
+    width: int,
+    device: torch.device,
+    memory_fraction: float = 0.25,
+    min_tile_size: int = 512,
+    max_tile_size: int = 1536,
+    step: int = 128
+) -> int:
+    """
+    Calculate optimal tile size based on available GPU memory.
+
+    This function estimates a safe tile size that balances speed and memory usage.
+    When tile_size is set to 0, this function automatically determines the best
+    tile size based on available GPU memory.
+
+    Args:
+        height: Image height in pixels
+        width: Image width in pixels
+        device: torch device (should be CUDA)
+        memory_fraction: Fraction of available memory to use (default: 0.25 = 25%)
+        min_tile_size: Minimum tile size (default: 512)
+        max_tile_size: Maximum tile size (default: 1536)
+        step: Tile size step/granularity (default: 128)
+
+    Returns:
+        Optimal tile size (multiple of step) between min_tile_size and max_tile_size
+
+    Memory estimation:
+        - Base model: ~3.6GB (VQGAN + UNet)
+        - Per tile memory: tile_pixels * channels * dtype_size * overhead
+        - Overhead factor: ~32x (very conservative for VFI model with refinement)
+        - Target: Use 25% of available memory for maximum safety
+    """
+    if not torch.cuda.is_available() or device.type != 'cuda':
+        return min_tile_size
+
+    try:
+        # Get GPU memory info
+        total_memory = torch.cuda.get_device_properties(device).total_memory
+        allocated_memory = torch.cuda.memory_allocated(device)
+        reserved_memory = torch.cuda.memory_reserved(device)
+
+        # Calculate available memory - use reserved as baseline (more accurate)
+        # Add extra safety margin to avoid fragmentation issues
+        used_memory = reserved_memory
+        safety_margin = 3 * (1024**3)  # Reserve 3GB for safety
+        available_memory = max(0, total_memory - used_memory - safety_margin)
+        target_memory = available_memory * memory_fraction
+
+        # If not enough memory available, use minimum tile size
+        if target_memory < 1 * (1024**3):  # Less than 1GB available
+            return min_tile_size
+
+        # If image is small enough to fit in memory without tiling
+        if height <= min_tile_size and width <= min_tile_size:
+            return 0
+
+        # Memory estimation formula (very conservative):
+        # Per-pixel memory = channels (3) * dtype_size (4 for FP32) * overhead (32x)
+        # Very high overhead multiplier for VFI models with:
+        # - Encoder features (multi-scale)
+        # - Decoder features (multi-scale)
+        # - Optical flow computation and refinement (VFIformer)
+        # - Attention maps
+        # - Intermediate tensors
+        # - Gradient buffers
+        channels = 3
+        dtype_size = 4
+        overhead_multiplier = 32  # Very conservative for VFI
+        bytes_per_pixel = channels * dtype_size * overhead_multiplier
+
+        # Calculate maximum safe tile size
+        max_tile_pixels = target_memory / bytes_per_pixel
+        max_safe_tile_size = int(math.sqrt(max_tile_pixels))
+
+        # Round down to nearest step
+        optimal_tile_size = (max_safe_tile_size // step) * step
+
+        # Clamp to valid range
+        optimal_tile_size = max(min_tile_size, min(optimal_tile_size, max_tile_size))
+
+        # Additional safety check: if optimal size covers the whole image, disable tiling
+        if optimal_tile_size >= height and optimal_tile_size >= width:
+            return 0
+
+        return optimal_tile_size
+
+    except Exception as e:
+        return min_tile_size
 
 
 def calculate_tiles(height: int, width: int, tile_size: int = 512, overlap: int = 64) -> List[Tuple[int, int, int, int]]:
@@ -193,10 +286,16 @@ def process_with_tiling(model,
 
     print(f"  Tiled processing: {len(tile_coords_list)} tiles ({tile_size}x{tile_size}, overlap={overlap})")
 
-    # Process each tile
+    # Process each tile with progress tracking
     output_tiles = []
+    total_tiles = len(tile_coords_list)
+    start_time = time.time()
+    tile_times = []
+
     for i, coords in enumerate(tile_coords_list):
         try:
+            tile_start_time = time.time()
+
             # Extract tiles from both frames
             tile_a = extract_tile(frame_a, coords)
             tile_b = extract_tile(frame_b, coords)
@@ -211,18 +310,62 @@ def process_with_tiling(model,
 
             output_tiles.append(tile_out)
 
+            # Track tile processing time
+            tile_elapsed = time.time() - tile_start_time
+            tile_times.append(tile_elapsed)
+
             # Clear cache periodically
             if (i + 1) % 4 == 0:
                 torch.cuda.empty_cache()
 
-            if (i + 1) % 10 == 0 or i == len(tile_coords_list) - 1:
-                print(f"    Processed {i+1}/{len(tile_coords_list)} tiles")
+            # Calculate progress and ETA
+            progress_pct = ((i + 1) / total_tiles) * 100
+
+            # Calculate ETA after processing at least 2 tiles
+            if len(tile_times) >= 2:
+                avg_time_per_tile = sum(tile_times) / len(tile_times)
+                remaining_tiles = total_tiles - (i + 1)
+                eta_seconds = avg_time_per_tile * remaining_tiles
+
+                # Format ETA
+                if eta_seconds < 60:
+                    eta_str = f"{eta_seconds:.0f}s"
+                elif eta_seconds < 3600:
+                    eta_str = f"{eta_seconds/60:.1f}m"
+                else:
+                    eta_str = f"{eta_seconds/3600:.1f}h"
+
+                # Progress bar
+                bar_length = 30
+                filled_length = int(bar_length * (i + 1) / total_tiles)
+                bar = '█' * filled_length + '░' * (bar_length - filled_length)
+
+                print(f"\r    [{bar}] {i+1}/{total_tiles} ({progress_pct:.1f}%) | ETA: {eta_str}", end='', flush=True)
+            else:
+                # Simple progress for first tiles
+                bar_length = 30
+                filled_length = int(bar_length * (i + 1) / total_tiles)
+                bar = '█' * filled_length + '░' * (bar_length - filled_length)
+                print(f"\r    [{bar}] {i+1}/{total_tiles} ({progress_pct:.1f}%)", end='', flush=True)
 
         except Exception as e:
-            print(f"    ERROR processing tile {i+1}/{len(tile_coords_list)}: {e}")
+            print(f"\n    ERROR processing tile {i+1}/{len(tile_coords_list)}: {e}")
             print(f"    Tile coords: {coords}")
             print(f"    Tile shape: {tile_a.shape if 'tile_a' in locals() else 'N/A'}")
             raise
+
+    # Print newline after progress bar
+    print()
+
+    # Print total time
+    total_time = time.time() - start_time
+    if total_time < 60:
+        time_str = f"{total_time:.1f}s"
+    elif total_time < 3600:
+        time_str = f"{total_time/60:.1f}m"
+    else:
+        time_str = f"{total_time/3600:.1f}h"
+    print(f"    Completed in {time_str}")
 
     # Verify we have tiles before merging
     if not output_tiles:

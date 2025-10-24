@@ -30,7 +30,7 @@ try:
         get_memory_stats,
         print_memory_summary,
     )
-    from ..utils.tiling import process_with_tiling
+    from ..utils.tiling import process_with_tiling, calculate_optimal_tile_size
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from utils import (
@@ -38,7 +38,7 @@ except ImportError:
         get_memory_stats,
         print_memory_summary,
     )
-    from utils.tiling import process_with_tiling
+    from utils.tiling import process_with_tiling, calculate_optimal_tile_size
 
 import folder_paths
 
@@ -145,16 +145,16 @@ class TLBVFI_Interpolator_V2:
                 # 1.0 = Quality (full resolution optical flow, 2x slower decode)
 
                 "tile_size": ("INT", {
-                    "default": 512,
+                    "default": 0,
                     "min": 0,
                     "max": 2048,
                     "step": 128,
                     "display": "number"
                 }),
-                # 0 = Disable tiling (process full image, faster but uses more VRAM)
-                # 512 = Enable tiling (512x512 tiles, for 2K/4K on limited VRAM)
-                # Recommended: 0 for 1080p, 512 for 2K/4K
-                # WARNING: Values 1-127 will cause errors!
+                # 0 = Auto-calculate optimal tile size based on 80% of available GPU memory
+                #     (will disable tiling if image fits in memory or is small enough)
+                # 512/640/.../2048 = Manual tile size (must be multiple of 128)
+                # Recommended: 0 for automatic optimization
 
                 "cpu_offload": ("BOOLEAN", {"default": True}),
                 # True = Immediate GPU→CPU transfer (RIFE pattern, recommended)
@@ -275,12 +275,33 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             prev_frame, next_frame, device
         )
 
+        # Auto-calculate tile size if set to 0
+        original_tile_size = tile_size
+        if tile_size == 0:
+            _, _, H, W = prev_tensor.shape
+            tile_size = calculate_optimal_tile_size(
+                height=H,
+                width=W,
+                device=device,
+                memory_fraction=0.25,  # Very conservative 25% to avoid OOM
+                min_tile_size=512,
+                max_tile_size=1536,  # Lower max to avoid memory issues
+                step=128
+            )
+            if tile_size == 0:
+                print(f"  Selected tile size: Auto - Disabled (full image processing)")
+            else:
+                print(f"  Selected tile size: Auto - {tile_size}x{tile_size}")
+        else:
+            # User manually specified tile size
+            print(f"  Selected tile size: Manual - {tile_size}x{tile_size}")
+
         # Core interpolation
         if times_to_interpolate == 0:
             # Single-frame interpolation (original paper mode)
             print(f"TLBVFI_V2: Single-frame interpolation (original paper mode)")
             result = self._interpolate_single(
-                prev_tensor, next_tensor, model, flow_scale, cpu_offload
+                prev_tensor, next_tensor, model, flow_scale, tile_size, cpu_offload
             )
         else:
             # Recursive bisection with memory management
@@ -400,7 +421,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
 
         return prev_tensor, next_tensor, pad_info
 
-    def _interpolate_single(self, prev_tensor, next_tensor, model, flow_scale, cpu_offload):
+    def _interpolate_single(self, prev_tensor, next_tensor, model, flow_scale, tile_size, cpu_offload):
         """
         Single-frame interpolation (original paper pattern).
 
@@ -411,6 +432,7 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             next_tensor: (1, C, H, W) in [-1, 1] on GPU
             model: TLBVFI model
             flow_scale: Flow computation scale (0.5=fast, 1.0=quality)
+            tile_size: Tile size for tiled inference (0=disabled)
             cpu_offload: Immediate GPU→CPU transfer
 
         Returns:

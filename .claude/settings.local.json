@@ -1,22 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(python3:*)",
-      "WebFetch(domain:stackoverflow.com)",
-      "WebFetch(domain:github.com)",
-      "mcp__codex__codex",
-      "mcp__codex__codex-reply",
-      "Bash(mkdir:*)",
-      "Bash(find:*)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "Read(//private/tmp/**)",
-      "Read(//tmp/ComfyUI-Frame-Interpolation/**)",
-      "WebFetch(domain:zonglinl.github.io)",
-      "Bash(git clone:*)",
-      "Read(//tmp/TLBVFI/**)"
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

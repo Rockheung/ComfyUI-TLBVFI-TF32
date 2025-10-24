@@ -155,15 +155,16 @@ class TLBVFI_ChunkProcessor:
                 }),
                 "flow_scale": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
                 "tile_size": ("INT", {
-                    "default": 512,
+                    "default": 0,
                     "min": 0,
                     "max": 2048,
                     "step": 128,
                     "display": "number"
                 }),
-                # 0 = Disable tiling (process full image, faster but uses more VRAM)
-                # 512 = Enable tiling (512x512 tiles, for 2K/4K on limited VRAM)
-                # Recommended: 0 for 1080p, 512 for 2K/4K
+                # 0 = Auto-calculate optimal tile size based on 80% of available GPU memory
+                #     (will disable tiling if image fits in memory or is small enough)
+                # 512/640/.../2048 = Manual tile size (must be multiple of 128)
+                # Recommended: 0 for automatic optimization
                 "cpu_offload": ("BOOLEAN", {"default": True}),
             }
         }
@@ -262,7 +263,7 @@ TLBVFI all-in-one chunk processor - automatically processes entire video.
         print(f"  Codec: {codec} (Bitrate={bitrate})")
         print(f"  Sample steps: {sample_steps}")
         print(f"  Flow scale: {flow_scale}")
-        print(f"  Tile size: {tile_size if tile_size > 0 else 'Disabled (full image)'}")
+        print(f"  Tile size: {tile_size if tile_size > 0 else 'Auto (will be calculated per frame)'}")
         print(f"  TF32: {'Enabled' if enable_tf32 else 'Disabled'}")
         print(f"  CPU offload: {'Enabled' if cpu_offload else 'Disabled'}")
         print(f"{'='*80}\n")
