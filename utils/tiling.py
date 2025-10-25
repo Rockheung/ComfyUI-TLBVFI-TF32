@@ -13,6 +13,176 @@ from typing import Tuple, List
 import math
 import time
 
+# Constants for flow_scale validation and compatibility
+FLOW_SCALE_MIN = 0.05  # Minimum to avoid zero-sized tensors
+FLOW_SCALE_MAX = 1.0   # Maximum (full resolution flow)
+FLOW_SCALE_DEFAULT = 0.5  # Balanced speed/quality
+
+# Network architecture constraints
+# The VQGAN encoder requires input dimensions divisible by:
+# min_side = 8 * 2^(num_resolutions-1) * 4 = 256 (for num_resolutions=5)
+# We use a relaxed divisor for flexibility while maintaining stability
+NETWORK_MIN_SIDE = 256  # Actual network requirement
+TILE_SIZE_DIVISOR = 64  # Relaxed requirement (256/4) for better flexibility
+
+
+def validate_and_adjust_flow_scale(flow_scale: float, tile_size: int, height: int, width: int, verbose: bool = True) -> float:
+    """
+    Validate flow_scale and adjust if necessary to avoid tensor size mismatches.
+
+    This function ensures that flow_scale is compatible with the network architecture
+    when used with tiling. It adjusts the scale if necessary to ensure downsampled
+    tile sizes are divisible by TILE_SIZE_DIVISOR (64).
+
+    Algorithm:
+        1. Clamp flow_scale to valid range [FLOW_SCALE_MIN, FLOW_SCALE_MAX]
+        2. If tile_size == 0 or flow_scale >= 1.0, return as-is (no downsampling)
+        3. Calculate downsampled tile size: int(tile_size * flow_scale)
+        4. Check if downsampled size is divisible by TILE_SIZE_DIVISOR
+        5. If not, use mathematical optimization to find nearest compatible scale (O(1))
+
+    Compatibility Requirements:
+        The network requires downsampled images to have dimensions divisible by
+        NETWORK_MIN_SIDE (256). This function uses TILE_SIZE_DIVISOR (64) as a
+        relaxed requirement for flexibility while maintaining stability.
+
+    Args:
+        flow_scale: User-requested flow scale (0.0-1.0)
+        tile_size: Tile size being used (0 = no tiling)
+        height: Image height (currently unused, for future enhancements)
+        width: Image width (currently unused, for future enhancements)
+        verbose: Print warning if adjustment is made
+
+    Returns:
+        Adjusted flow_scale that ensures compatibility
+
+    Examples:
+        >>> validate_and_adjust_flow_scale(0.5, 512, 1920, 1080)
+        0.5  # 512 * 0.5 = 256, divisible by 64
+
+        >>> validate_and_adjust_flow_scale(0.3, 512, 1920, 1080, verbose=False)
+        0.25  # Adjusted: 512 * 0.3 = 153.6 → 512 * 0.25 = 128, divisible by 64
+    """
+    # Always clamp to minimum safe value
+    flow_scale = max(FLOW_SCALE_MIN, flow_scale)
+
+    # No validation needed for full resolution flow
+    if flow_scale >= FLOW_SCALE_MAX:
+        return FLOW_SCALE_MAX
+
+    # If no tiling, any scale is acceptable (handled by vqgan.py padding logic)
+    if tile_size == 0:
+        return flow_scale
+
+    # Check if tile_size * flow_scale produces reasonable downsampled size
+    downsampled_tile = int(tile_size * flow_scale)
+
+    # Use the relaxed divisor for compatibility
+    divisor = TILE_SIZE_DIVISOR
+
+    # If already compatible, return as-is
+    if downsampled_tile % divisor == 0:
+        return flow_scale
+
+    # Optimized: Calculate nearest compatible flow_scale mathematically (O(1) instead of O(n))
+    # We want: (tile_size * candidate) % divisor == 0
+    # So: candidate = (k * divisor) / tile_size, for some integer k
+
+    # Find the k value closest to current flow_scale
+    target_downsampled = flow_scale * tile_size
+    k_nearest = round(target_downsampled / divisor)
+
+    # Handle edge case: k_nearest might be 0
+    if k_nearest == 0:
+        k_nearest = 1
+
+    # Calculate the mathematically optimal candidate
+    candidate = (k_nearest * divisor) / tile_size
+
+    # Clamp to valid range
+    candidate = max(FLOW_SCALE_MIN, min(FLOW_SCALE_MAX, candidate))
+
+    # Verify the candidate is actually compatible (should always be true, but double-check)
+    if int(tile_size * candidate) % divisor != 0:
+        # Fallback to safe default if calculation failed somehow
+        if verbose:
+            print(f"⚠️  Mathematical calculation failed, using {FLOW_SCALE_DEFAULT} (safe default)")
+        return FLOW_SCALE_DEFAULT
+
+    # Inform user if adjustment was made
+    if verbose and abs(candidate - flow_scale) > 0.01:
+        print(f"⚠️  flow_scale adjusted from {flow_scale:.3f} to {candidate:.3f} for compatibility with tile_size={tile_size}")
+
+    return candidate
+
+
+def calculate_flow_aware_tile_size(
+    height: int,
+    width: int,
+    device: torch.device,
+    flow_scale: float = 0.5,
+    memory_fraction: float = 0.25,
+    min_tile_size: int = 512,
+    max_tile_size: int = 1536,
+    step: int = 128,
+    min_side: int = 256
+) -> int:
+    """
+    Calculate optimal tile size considering both memory constraints and flow_scale compatibility.
+
+    This function ensures that:
+    1. Tile size fits in available GPU memory
+    2. Downsampled tile size (tile_size * flow_scale) is compatible with network requirements
+
+    Args:
+        height: Image height in pixels
+        width: Image width in pixels
+        device: torch device (should be CUDA)
+        flow_scale: Flow resolution scaling factor (0.05-1.0)
+        memory_fraction: Fraction of available memory to use (default: 0.25 = 25%)
+        min_tile_size: Minimum tile size (default: 512)
+        max_tile_size: Maximum tile size (default: 1536)
+        step: Tile size granularity (default: 128)
+        min_side: Minimum divisible size for network (default: 256)
+
+    Returns:
+        Optimal tile size that is both memory-safe and flow_scale compatible
+        Returns 0 if tiling is not needed
+    """
+    # First, calculate memory-based optimal tile size
+    base_tile_size = calculate_optimal_tile_size(
+        height, width, device, memory_fraction, min_tile_size, max_tile_size, step
+    )
+
+    # If tiling disabled, return immediately
+    if base_tile_size == 0:
+        return 0
+
+    # If flow_scale >= 1.0, no downsampling, so no compatibility concern
+    if flow_scale >= 1.0:
+        return base_tile_size
+
+    # Find largest tile size <= base_tile_size that is compatible with flow_scale
+    # Compatible means: (tile_size * flow_scale) is divisible by TILE_SIZE_DIVISOR
+    # (Matches the divisor in validate_and_adjust_flow_scale)
+    divisor = TILE_SIZE_DIVISOR
+
+    for tile_size in range(base_tile_size, min_tile_size - step, -step):
+        downsampled_size = int(tile_size * flow_scale)
+        if downsampled_size % divisor == 0:
+            return tile_size
+
+    # If no compatible size found in range, calculate minimum compatible size
+    # Find smallest k where (k * divisor) / flow_scale >= min_tile_size
+    min_downsampled = int(min_tile_size * flow_scale)
+    k_min = math.ceil(min_downsampled / divisor)
+    compatible_min = int((k_min * divisor) / flow_scale)
+
+    # Round up to nearest step
+    compatible_min = ((compatible_min + step - 1) // step) * step
+
+    return compatible_min
+
 
 def calculate_optimal_tile_size(
     height: int,

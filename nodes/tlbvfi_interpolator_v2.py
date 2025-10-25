@@ -30,7 +30,14 @@ try:
         get_memory_stats,
         print_memory_summary,
     )
-    from ..utils.tiling import process_with_tiling, calculate_optimal_tile_size
+    from ..utils.tiling import (
+        process_with_tiling,
+        calculate_optimal_tile_size,
+        calculate_flow_aware_tile_size,
+        validate_and_adjust_flow_scale,
+        FLOW_SCALE_MIN,
+        FLOW_SCALE_DEFAULT,
+    )
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from utils import (
@@ -38,7 +45,14 @@ except ImportError:
         get_memory_stats,
         print_memory_summary,
     )
-    from utils.tiling import process_with_tiling, calculate_optimal_tile_size
+    from utils.tiling import (
+        process_with_tiling,
+        calculate_optimal_tile_size,
+        calculate_flow_aware_tile_size,
+        validate_and_adjust_flow_scale,
+        FLOW_SCALE_MIN,
+        FLOW_SCALE_DEFAULT,
+    )
 
 import folder_paths
 
@@ -276,14 +290,25 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
             prev_frame, next_frame, device
         )
 
-        # Auto-calculate tile size if set to 0
+        # Early validation: clamp flow_scale to minimum safe value
+        # This ensures all subsequent calculations use valid flow_scale
+        effective_flow_scale = max(flow_scale, FLOW_SCALE_MIN)
+        if effective_flow_scale != flow_scale:
+            if self._frame_pair_count == 0:  # Print only once
+                print(f"TLBVFI_V2: flow_scale={flow_scale} too low, clamping to {FLOW_SCALE_MIN}")
+            flow_scale = effective_flow_scale
+
+        # Auto-calculate tile size if set to 0, considering flow_scale compatibility
         original_tile_size = tile_size
+        _, _, H, W = prev_tensor.shape
+
         if tile_size == 0:
-            _, _, H, W = prev_tensor.shape
-            tile_size = calculate_optimal_tile_size(
+            # Use flow-aware tile size calculation for better compatibility
+            tile_size = calculate_flow_aware_tile_size(
                 height=H,
                 width=W,
                 device=device,
+                flow_scale=flow_scale,  # Now uses validated flow_scale
                 memory_fraction=0.25,  # Very conservative 25% to avoid OOM
                 min_tile_size=512,
                 max_tile_size=1536,  # Lower max to avoid memory issues
@@ -293,11 +318,24 @@ Production-grade TLBVFI interpolator with memory safety and optimizations.
                 if tile_size == 0:
                     print(f"  Selected tile size: Auto - Disabled (full image processing)")
                 else:
-                    print(f"  Selected tile size: Auto - {tile_size}x{tile_size}")
+                    print(f"  Selected tile size: Auto - {tile_size}x{tile_size} (flow_scale aware)")
         else:
             # User manually specified tile size
             if debug:
                 print(f"  Selected tile size: Manual - {tile_size}x{tile_size}")
+
+        # Final validation: adjust flow_scale for exact compatibility with tile_size
+        # This may make minor adjustments to ensure (tile_size * flow_scale) is divisible by 64
+        original_flow_scale = flow_scale
+        flow_scale = validate_and_adjust_flow_scale(
+            flow_scale=flow_scale,
+            tile_size=tile_size,
+            height=H,
+            width=W,
+            verbose=debug
+        )
+        if debug and abs(flow_scale - original_flow_scale) > 0.01:
+            print(f"  Flow scale fine-tuned: {original_flow_scale:.3f} → {flow_scale:.3f}")
 
         # Core interpolation
         if times_to_interpolate == 0:

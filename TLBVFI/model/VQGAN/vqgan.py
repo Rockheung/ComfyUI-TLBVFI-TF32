@@ -456,23 +456,53 @@ class VQFlowNetInterface(VQFlowNet):
 
         with torch.no_grad():
             if scale < 1:
-            
-                b,c,h,w = F.interpolate(F.pad(x_prev, (0, self.pad_w, 0, self.pad_h), mode='reflect'), scale_factor=scale, mode="bilinear", align_corners=False).shape
-                
+                # Fix: Downsample original images first, then apply padding to downsampled size
+                # This ensures proper tensor size matching in encoder residual connections
+
+                # Step 1: Downsample original images
                 img0_down_ = F.interpolate(x_prev, scale_factor=scale, mode="bilinear", align_corners=False)
                 img1_down_ = F.interpolate(x_next, scale_factor=scale, mode="bilinear", align_corners=False)
-                _,_,h_,w_ = img0_down_.shape
-                # Match dtype with downscaled images for FP16 support
-                img0_down = torch.zeros(b,c,h,w, device=img0_down_.device, dtype=img0_down_.dtype)
-                img1_down = torch.zeros(b,c,h,w, device=img1_down_.device, dtype=img1_down_.dtype)
-                img0_down[:,:,:h_,:w_] = img0_down_
-                img1_down[:,:,:h_,:w_] = img1_down_
 
+                b, c, h_down, w_down = img0_down_.shape
 
+                # Step 2: Calculate padding for downsampled images
+                # Network requires sizes divisible by min_side (8 * 2^(nr-1) * 4 = 256 typically)
+                min_side = 8 * 2**(self.encoder.num_resolutions-1) * 4
 
-                _,tmp_list = self.encoder(torch.cat([img0_down,torch.zeros_like(img0_down),img1_down]))
-                flow_down = self.get_flow(img0_down, img1_down,tmp_list[:-2])
-                flow = F.interpolate(flow_down, scale_factor=1/scale, mode="bilinear", align_corners=False) * 1/scale
+                # Safety check: Ensure downsampled size is not too small
+                # If downsampled size is less than min_side/2, padding would be excessive (>200% increase)
+                if h_down < min_side // 2 or w_down < min_side // 2:
+                    # Fallback: disable flow computation for extreme downsampling
+                    recommended_min_scale = min_side / (2.0 * max(h, w))
+                    print(f"⚠️  WARNING: Downsampled size ({h_down}x{w_down}) too small for flow computation.")
+                    print(f"   Consider using flow_scale >= {recommended_min_scale:.2f} for better results.")
+                    print(f"   Disabling flow computation for this frame.")
+                    flow = None
+                else:
+                    # Normal path: calculate padding
+                    pad_h_down = (min_side - (h_down % min_side)) % min_side
+                    pad_w_down = (min_side - (w_down % min_side)) % min_side
+
+                    # Step 3: Apply padding to downsampled images if needed
+                    img0_down = img0_down_
+                    img1_down = img1_down_
+                    if pad_h_down > 0 or pad_w_down > 0:
+                        img0_down = F.pad(img0_down, (0, pad_w_down, 0, pad_h_down), mode='reflect')
+                        img1_down = F.pad(img1_down, (0, pad_w_down, 0, pad_h_down), mode='reflect')
+
+                    # Step 4: Compute optical flow on padded downsampled images
+                    _, tmp_list = self.encoder(torch.cat([img0_down, torch.zeros_like(img0_down), img1_down]))
+                    flow_down = self.get_flow(img0_down, img1_down, tmp_list[:-2])
+
+                    # Step 5: Upsample flow back to original downsampled size (remove padding effect)
+                    # Use exact size instead of scale_factor to avoid rounding errors
+                    if pad_h_down > 0 or pad_w_down > 0:
+                        # Remove padding from flow before upsampling
+                        flow_down = flow_down[:, :, :h_down, :w_down]
+
+                    # Step 6: Upsample to original image size
+                    flow = F.interpolate(flow_down, size=(h, w), mode="bilinear", align_corners=False)
+                    flow = flow / scale  # Scale flow vectors to match resolution change (using division for better numerical stability)
             else:
                 flow = None
             dec = self.decoder(quant, cond_dict,flow)
